@@ -20,6 +20,8 @@ import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
 import org.springframework.security.web.SecurityFilterChain;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.DispatcherType;
 
 @Configuration
 @EnableMethodSecurity
@@ -29,12 +31,33 @@ public class SecurityConfiguration {
         return http
                 .csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/auth/customers/**", "/actuator/health", "/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**", "/payments/paynow/callback").permitAll()
-                        .requestMatchers("/auth/employees/login", "/auth/employees/refresh").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/branches/**", "/catalogue/**", "/content/**", "/chicks/availability").permitAll()
+                        .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
+                        .requestMatchers(SecurityConfiguration::isPublicRequest).permitAll()
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth -> oauth.jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter())))
                 .build();
+    }
+
+    private static boolean isPublicRequest(HttpServletRequest request) {
+        String path = request.getRequestURI();
+        String contextPath = request.getContextPath();
+        if (!contextPath.isEmpty() && path.startsWith(contextPath)) {
+            path = path.substring(contextPath.length());
+        }
+        if (path.startsWith("/auth/customers/")
+                || path.equals("/auth/employees/login")
+                || path.equals("/auth/employees/refresh")
+                || path.equals("/actuator/health")
+                || path.startsWith("/swagger-ui")
+                || path.startsWith("/v3/api-docs")
+                || path.equals("/payments/paynow/callback")) {
+            return true;
+        }
+        return HttpMethod.GET.matches(request.getMethod())
+                && (path.startsWith("/branches")
+                    || path.startsWith("/catalogue")
+                    || path.startsWith("/content")
+                    || path.equals("/chicks/availability"));
     }
 
     @Bean

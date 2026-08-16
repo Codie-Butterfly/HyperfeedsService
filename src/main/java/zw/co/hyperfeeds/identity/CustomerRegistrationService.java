@@ -45,7 +45,7 @@ class CustomerRegistrationService {
             throw new IdentityException(HttpStatus.CONFLICT, "PHONE_ALREADY_REGISTERED", "That phone number is already registered");
         }
         if (user == null) {
-            user = users.save(new User(phone, firstName.trim(), lastName.trim()));
+            user = users.saveAndFlush(new User(phone, firstName.trim(), lastName.trim()));
             jdbc.update("insert into user_roles(user_id, role_id) select ?, id from roles where code = 'CUSTOMER' on conflict do nothing", user.id);
         } else {
             enforceCooldown(user);
