@@ -6,11 +6,16 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import java.time.Instant;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @RestControllerAdvice
 class IdentityExceptionHandler {
+    private static final Logger log = LoggerFactory.getLogger(IdentityExceptionHandler.class);
+
     @ExceptionHandler(IdentityException.class)
     ResponseEntity<?> identity(IdentityException ex) {
+        log.warn("request.rejected code={} status={} message={}", ex.code, ex.status.value(), ex.getMessage());
         return ResponseEntity.status(ex.status).body(Map.of(
                 "code", ex.code, "message", ex.getMessage(), "timestamp", Instant.now().toString()));
     }

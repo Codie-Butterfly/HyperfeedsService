@@ -5,6 +5,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -16,6 +18,7 @@ import java.util.UUID;
 
 @Service
 class CustomerRegistrationService {
+    private static final Logger log = LoggerFactory.getLogger(CustomerRegistrationService.class);
     private final UserRepository users;
     private final PhoneVerificationChallengeRepository challenges;
     private final OtpSender otpSender;
@@ -40,6 +43,7 @@ class CustomerRegistrationService {
     @Transactional
     SignupResult signup(String rawPhone, String firstName, String lastName) {
         String phone = normalizePhone(rawPhone);
+        log.info("customer.signup.requested destination={}", mask(phone));
         User user = users.findByPhoneNumber(phone).orElse(null);
         if (user != null && user.phoneVerified) {
             throw new IdentityException(HttpStatus.CONFLICT, "PHONE_ALREADY_REGISTERED", "That phone number is already registered");
@@ -55,6 +59,8 @@ class CustomerRegistrationService {
         Instant expiresAt = Instant.now().plus(ttl);
         var challenge = challenges.save(new PhoneVerificationChallenge(user, hash(code), expiresAt, maxAttempts));
         otpSender.send(phone, code);
+        log.info("customer.signup.otp_dispatched challengeId={} destination={} expiresAt={}",
+                challenge.id, mask(phone), expiresAt);
         return new SignupResult(challenge.id, mask(phone), expiresAt, resendCooldown.toSeconds());
     }
 
@@ -75,6 +81,7 @@ class CustomerRegistrationService {
         challenge.user.phoneVerified = true;
         challenge.user.updatedAt = Instant.now();
         jdbc.update("insert into notifications(user_id,type,title,body) values (?,'WELCOME','Welcome to Hyperfeeds','Your Hyperfeeds account is ready to use.')", challenge.user.id);
+        log.info("customer.signup.verified challengeId={} userId={}", challenge.id, challenge.user.id);
         return authentication.issueTokenPair(challenge.user);
     }
 
