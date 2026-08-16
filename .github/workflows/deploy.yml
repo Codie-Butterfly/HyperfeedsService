@@ -82,8 +82,17 @@ jobs:
             sudo mkdir -p /opt/hyperfeeds && \
             sudo mv /tmp/hyperfeeds-compose.yaml /opt/hyperfeeds/compose.yaml && \
             cd /opt/hyperfeeds && \
-            sudo HYPERFEEDS_IMAGE='${IMAGE}' docker compose --env-file .env pull api && \
-            sudo HYPERFEEDS_IMAGE='${IMAGE}' docker compose --env-file .env up -d --remove-orphans && \
+            sudo sed -i '/^HYPERFEEDS_IMAGE=/d' .env && \
+            printf '%s\n' 'HYPERFEEDS_IMAGE=${IMAGE}' | sudo tee -a .env >/dev/null && \
+            if sudo docker compose version >/dev/null 2>&1; then \
+              sudo docker compose -f compose.yaml pull api && \
+              sudo docker compose -f compose.yaml up -d --remove-orphans; \
+            elif command -v docker-compose >/dev/null 2>&1; then \
+              sudo docker-compose -f compose.yaml pull api && \
+              sudo docker-compose -f compose.yaml up -d --remove-orphans; \
+            else \
+              echo 'Docker Compose is not installed on the VPS' >&2; exit 1; \
+            fi && \
             sudo docker image prune -f"
 
       - name: Verify deployment

@@ -39,9 +39,11 @@ proxy and close the public port before production launch.
 
 ```bash
 cd /opt/hyperfeeds
-sudo HYPERFEEDS_IMAGE=DOCKER_USER/hyperfeeds-service:TAG docker compose --env-file .env up -d
-sudo docker compose --env-file .env ps
-sudo docker compose --env-file .env logs --tail=200 api
+sudo sed -i '/^HYPERFEEDS_IMAGE=/d' .env
+printf '%s\n' 'HYPERFEEDS_IMAGE=DOCKER_USER/hyperfeeds-service:TAG' | sudo tee -a .env
+sudo docker compose -f compose.yaml up -d
+sudo docker compose -f compose.yaml ps
+sudo docker compose -f compose.yaml logs --tail=200 api
 ```
 
 PostgreSQL data is stored in the named Docker volume `hyperfeeds-postgres` and is not
