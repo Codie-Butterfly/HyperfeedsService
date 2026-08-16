@@ -94,6 +94,8 @@ jobs:
       - name: Verify deployment
         env:
           SERVER_IP: ${{ secrets.SERVER_IP }}
+          SCP_USERNAME: ${{ secrets.SCP_USERNAME }}
+          SCP_PASSWORD: ${{ secrets.SCP_PASSWORD }}
         run: |
           for attempt in {1..18}; do
             if curl --fail --silent "http://${SERVER_IP}:8081/api/actuator/health"; then
@@ -101,4 +103,12 @@ jobs:
             fi
             sleep 10
           done
+          echo "API did not become healthy; collecting VPS diagnostics" >&2
+          sshpass -p "$SCP_PASSWORD" ssh -o StrictHostKeyChecking=no "${SCP_USERNAME}@${SERVER_IP}" "\
+            cd /opt/hyperfeeds && \
+            if sudo docker compose version >/dev/null 2>&1; then \
+              sudo docker compose -f compose.yaml ps -a; \
+            else \
+              sudo docker-compose -f compose.yaml ps -a; \
+            fi" || true
           exit 1
