@@ -75,7 +75,7 @@ class CustomerRegistrationService {
 
     @Transactional(noRollbackFor = IdentityException.class)
     EmployeeAuthenticationService.TokenResult verify(UUID challengeId, String code) {
-        var challenge = challenges.findById(challengeId).orElseThrow(() ->
+        var challenge = challenges.findByIdWithUser(challengeId).orElseThrow(() ->
                 new IdentityException(HttpStatus.NOT_FOUND, "CHALLENGE_NOT_FOUND", "Verification challenge was not found"));
         if (challenge.verifiedAt != null) return authentication.issueTokenPair(challenge.user);
         if (challenge.expiresAt.isBefore(Instant.now()))
