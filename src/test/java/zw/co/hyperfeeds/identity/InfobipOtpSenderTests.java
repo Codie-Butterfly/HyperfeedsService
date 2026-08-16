@@ -21,6 +21,13 @@ class InfobipOtpSenderTests {
     }
 
     @Test
+    void acceptsRawOrCompleteAuthorizationValues() {
+        assertThat(InfobipOtpSender.authorizationValue("test-key")).isEqualTo("App test-key");
+        assertThat(InfobipOtpSender.authorizationValue("App test-key")).isEqualTo("App test-key");
+        assertThat(InfobipOtpSender.authorizationValue("'App test-key'")).isEqualTo("App test-key");
+    }
+
+    @Test
     void sendsOtpWithoutLoggingOrPersistingIt() throws IOException {
         var requestBody = new AtomicReference<String>();
         server = HttpServer.create(new InetSocketAddress(0), 0);

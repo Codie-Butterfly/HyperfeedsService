@@ -12,6 +12,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestClientResponseException;
 
 @Component
 @ConditionalOnProperty(name = "hyperfeeds.otp.provider", havingValue = "infobip")
@@ -24,7 +25,7 @@ class InfobipOtpSender implements OtpSender {
             @Value("${hyperfeeds.otp.infobip.api-key}") String apiKey,
             @Value("${hyperfeeds.otp.infobip.sender}") String sender) {
         this.client = RestClient.builder().baseUrl(baseUrl)
-                .defaultHeader(HttpHeaders.AUTHORIZATION, "App " + apiKey)
+                .defaultHeader(HttpHeaders.AUTHORIZATION, authorizationValue(apiKey))
                 .build();
         this.sender = sender;
     }
@@ -44,11 +45,31 @@ class InfobipOtpSender implements OtpSender {
                     .retrieve()
                     .toBodilessEntity();
             log.info("Verification SMS accepted for delivery to {}", mask(phoneNumber));
+        } catch (RestClientResponseException exception) {
+            log.error("infobip.sms.rejected destination={} status={}",
+                    mask(phoneNumber), exception.getStatusCode().value());
+            throw deliveryFailure();
         } catch (RestClientException exception) {
-            log.error("Infobip rejected verification SMS delivery to {}", mask(phoneNumber), exception);
-            throw new IdentityException(HttpStatus.BAD_GATEWAY, "OTP_DELIVERY_FAILED",
-                    "The verification code could not be sent. Please try again.");
+            log.error("infobip.sms.failed destination={} reason={}",
+                    mask(phoneNumber), exception.getClass().getSimpleName());
+            throw deliveryFailure();
         }
+    }
+
+    static String authorizationValue(String configuredKey) {
+        String key = configuredKey == null ? "" : configuredKey.trim();
+        if (key.length() >= 2 && ((key.startsWith("\"") && key.endsWith("\""))
+                || (key.startsWith("'") && key.endsWith("'")))) {
+            key = key.substring(1, key.length() - 1).trim();
+        }
+        if (key.regionMatches(true, 0, "App ", 0, 4)) key = key.substring(4).trim();
+        if (key.isEmpty()) throw new IllegalStateException("INFOBIP_API_KEY must not be empty");
+        return "App " + key;
+    }
+
+    private static IdentityException deliveryFailure() {
+        return new IdentityException(HttpStatus.BAD_GATEWAY, "OTP_DELIVERY_FAILED",
+                "The verification code could not be sent. Please try again.");
     }
 
     private static String mask(String phoneNumber) {
