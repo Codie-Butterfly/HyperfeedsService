@@ -10,8 +10,6 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.web.client.RestClient;
-
 import com.sun.net.httpserver.HttpServer;
 
 class InfobipOtpSenderTests {
@@ -59,7 +57,7 @@ class InfobipOtpSenderTests {
     }
 
     private InfobipOtpSender sender() {
-        return new InfobipOtpSender(RestClient.builder(),
-                "http://localhost:" + server.getAddress().getPort(), "test-key", "447491163443");
+        return new InfobipOtpSender("http://localhost:" + server.getAddress().getPort(),
+                "test-key", "447491163443");
     }
 }

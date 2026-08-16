@@ -20,11 +20,10 @@ class InfobipOtpSender implements OtpSender {
     private final RestClient client;
     private final String sender;
 
-    InfobipOtpSender(RestClient.Builder builder,
-            @Value("${hyperfeeds.otp.infobip.base-url}") String baseUrl,
+    InfobipOtpSender(@Value("${hyperfeeds.otp.infobip.base-url}") String baseUrl,
             @Value("${hyperfeeds.otp.infobip.api-key}") String apiKey,
             @Value("${hyperfeeds.otp.infobip.sender}") String sender) {
-        this.client = builder.baseUrl(baseUrl)
+        this.client = RestClient.builder().baseUrl(baseUrl)
                 .defaultHeader(HttpHeaders.AUTHORIZATION, "App " + apiKey)
                 .build();
         this.sender = sender;
