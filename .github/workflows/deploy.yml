@@ -18,8 +18,6 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
-    outputs:
-      image: ${{ steps.image.outputs.value }}
     steps:
       - uses: actions/checkout@v4
 
@@ -47,9 +45,6 @@ jobs:
             ${{ env.IMAGE_NAME }}:${{ github.sha }}
             ${{ env.IMAGE_NAME }}:latest
 
-      - id: image
-        run: echo "value=${IMAGE_NAME}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
-
   deploy:
     runs-on: ubuntu-latest
     needs: build
@@ -74,7 +69,7 @@ jobs:
           SCP_PASSWORD: ${{ secrets.SCP_PASSWORD }}
           DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
           DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
-          IMAGE: ${{ needs.build.outputs.image }}
+          IMAGE: ${{ secrets.DOCKER_USERNAME }}/hyperfeeds-service:${{ github.sha }}
         run: |
           printf '%s' "$DOCKER_PASSWORD" | sshpass -p "$SCP_PASSWORD" ssh -o StrictHostKeyChecking=no "${SCP_USERNAME}@${SERVER_IP}" \
             "sudo docker login -u '${DOCKER_USERNAME}' --password-stdin"
