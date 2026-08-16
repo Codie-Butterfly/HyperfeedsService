@@ -1,0 +1,15 @@
+spring:
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+hyperfeeds:
+  otp:
+    pepper: ${OTP_PEPPER}
+  auth:
+    jwt-secret: ${JWT_SECRET}
+    token-pepper: ${TOKEN_PEPPER}
+  paynow:
+    integration-id: ${PAYNOW_INTEGRATION_ID}
+    integration-key: ${PAYNOW_INTEGRATION_KEY}
+    result-url: ${PAYNOW_RESULT_URL}

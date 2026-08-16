@@ -1,0 +1,48 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: hyperfeeds
+      POSTGRES_USER: hyperfeeds
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+    volumes:
+      - hyperfeeds-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hyperfeeds -d hyperfeeds"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - hyperfeeds
+
+  api:
+    image: ${HYPERFEEDS_IMAGE:?HYPERFEEDS_IMAGE is required}
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/hyperfeeds
+      DB_USERNAME: hyperfeeds
+      SERVER_PORT: 8080
+    ports:
+      - "8081:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8080/api/actuator/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 45s
+      retries: 3
+    networks:
+      - hyperfeeds
+
+volumes:
+  hyperfeeds-postgres:
+    name: hyperfeeds-postgres
+
+networks:
+  hyperfeeds:
+    name: hyperfeeds-network

@@ -1,0 +1,47 @@
+spring:
+  application:
+    name: hyperfeeds-service
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/hyperfeeds}
+    username: ${DB_USERNAME:hyperfeeds}
+    password: ${DB_PASSWORD:hyperfeeds}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+
+server:
+  port: ${SERVER_PORT:8080}
+  servlet:
+    context-path: /api
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+
+hyperfeeds:
+  otp:
+    ttl: ${OTP_TTL:5m}
+    resend-cooldown: ${OTP_RESEND_COOLDOWN:30s}
+    max-attempts: ${OTP_MAX_ATTEMPTS:5}
+    pepper: ${OTP_PEPPER:local-development-only-change-me}
+  auth:
+    issuer: ${JWT_ISSUER:hyperfeeds-service}
+    access-token-ttl: ${ACCESS_TOKEN_TTL:15m}
+    refresh-token-ttl: ${REFRESH_TOKEN_TTL:30d}
+    jwt-secret: ${JWT_SECRET:local-development-jwt-secret-change-me-now}
+    token-pepper: ${TOKEN_PEPPER:local-development-token-pepper-change-me}
+  paynow:
+    integration-id: ${PAYNOW_INTEGRATION_ID:}
+    integration-key: ${PAYNOW_INTEGRATION_KEY:}
+    result-url: ${PAYNOW_RESULT_URL:http://localhost:8080/api/payments/paynow/callback}
+    poll-delay: ${PAYNOW_POLL_DELAY:30s}
+    payment-timeout: ${PAYNOW_PAYMENT_TIMEOUT:30m}
