@@ -84,6 +84,7 @@ jobs:
               sudo sh -c 'set -a; . ./.env; set +a; docker compose -f compose.yaml up -d --remove-orphans'; \
             elif command -v docker-compose >/dev/null 2>&1; then \
               sudo sh -c 'set -a; . ./.env; set +a; docker-compose -f compose.yaml pull api' && \
+              sudo sh -c 'set -a; . ./.env; set +a; docker-compose -f compose.yaml rm -sf api' && \
               sudo sh -c 'set -a; . ./.env; set +a; docker-compose -f compose.yaml up -d --remove-orphans'; \
             else \
               echo 'Docker Compose is not installed on the VPS' >&2; exit 1; \
