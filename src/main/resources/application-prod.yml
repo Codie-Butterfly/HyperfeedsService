@@ -5,7 +5,12 @@ spring:
     password: ${DB_PASSWORD}
 hyperfeeds:
   otp:
+    provider: ${OTP_PROVIDER:infobip}
     pepper: ${OTP_PEPPER}
+    infobip:
+      base-url: ${INFOBIP_BASE_URL}
+      api-key: ${INFOBIP_API_KEY}
+      sender: ${INFOBIP_SMS_SENDER}
   auth:
     jwt-secret: ${JWT_SECRET}
     token-pepper: ${TOKEN_PEPPER}

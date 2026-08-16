@@ -40,9 +40,14 @@ if any row is invalid.
 ## Production configuration
 
 The `prod` profile requires `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`, `JWT_SECRET`,
-`TOKEN_PEPPER`, `OTP_PEPPER`, `PAYNOW_INTEGRATION_ID`, `PAYNOW_INTEGRATION_KEY`, and
-`PAYNOW_RESULT_URL`. Secrets have no production defaults and must be supplied by the
-deployment environment. Do not reuse credentials stored in older services.
+`TOKEN_PEPPER`, `OTP_PEPPER`, `INFOBIP_BASE_URL`, `INFOBIP_API_KEY`,
+`INFOBIP_SMS_SENDER`, `PAYNOW_INTEGRATION_ID`, `PAYNOW_INTEGRATION_KEY`, and
+`PAYNOW_RESULT_URL`. Secrets have no production defaults and must be supplied by
+the deployment environment. Do not reuse credentials stored in older services.
+
+Production customer verification codes are delivered through Infobip SMS. Local
+development defaults to the log-only OTP sender; set `OTP_PROVIDER=infobip` to test
+the real provider locally.
 
 Paynow checkout follows the ImbaService V2 mobile-money flow: EcoCash, OneMoney, or
 Telecash sends a handset authorization prompt. Hyperfeeds polls Paynow every 30

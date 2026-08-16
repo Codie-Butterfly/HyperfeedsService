@@ -29,10 +29,15 @@ springdoc:
 
 hyperfeeds:
   otp:
+    provider: ${OTP_PROVIDER:logging}
     ttl: ${OTP_TTL:5m}
     resend-cooldown: ${OTP_RESEND_COOLDOWN:30s}
     max-attempts: ${OTP_MAX_ATTEMPTS:5}
     pepper: ${OTP_PEPPER:local-development-only-change-me}
+    infobip:
+      base-url: ${INFOBIP_BASE_URL:https://example.invalid}
+      api-key: ${INFOBIP_API_KEY:}
+      sender: ${INFOBIP_SMS_SENDER:Hyperfeeds}
   auth:
     issuer: ${JWT_ISSUER:hyperfeeds-service}
     access-token-ttl: ${ACCESS_TOKEN_TTL:15m}
