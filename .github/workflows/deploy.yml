@@ -85,11 +85,11 @@ jobs:
             sudo sed -i '/^HYPERFEEDS_IMAGE=/d' .env && \
             printf '%s\n' 'HYPERFEEDS_IMAGE=${IMAGE}' | sudo tee -a .env >/dev/null && \
             if sudo docker compose version >/dev/null 2>&1; then \
-              sudo docker compose -f compose.yaml pull api && \
-              sudo docker compose -f compose.yaml up -d --remove-orphans; \
+              sudo sh -c 'set -a; . ./.env; set +a; docker compose -f compose.yaml pull api' && \
+              sudo sh -c 'set -a; . ./.env; set +a; docker compose -f compose.yaml up -d --remove-orphans'; \
             elif command -v docker-compose >/dev/null 2>&1; then \
-              sudo docker-compose -f compose.yaml pull api && \
-              sudo docker-compose -f compose.yaml up -d --remove-orphans; \
+              sudo sh -c 'set -a; . ./.env; set +a; docker-compose -f compose.yaml pull api' && \
+              sudo sh -c 'set -a; . ./.env; set +a; docker-compose -f compose.yaml up -d --remove-orphans'; \
             else \
               echo 'Docker Compose is not installed on the VPS' >&2; exit 1; \
             fi && \
