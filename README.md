@@ -49,6 +49,9 @@ Production customer verification codes are delivered through Infobip SMS. Local
 development defaults to the log-only OTP sender; set `OTP_PROVIDER=infobip` to test
 the real provider locally.
 
+For temporary isolated testing only, `OTP_FIXED_CODE` may be set to a six-digit
+code. This bypasses SMS delivery and must never remain enabled for a public launch.
+
 Paynow checkout follows the ImbaService V2 mobile-money flow: EcoCash, OneMoney, or
 Telecash sends a handset authorization prompt. Hyperfeeds polls Paynow every 30
 seconds and times out after 30 minutes. Payment outcomes are delivered through the

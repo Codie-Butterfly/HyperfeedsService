@@ -29,15 +29,20 @@ class CustomerRegistrationService {
     private final Duration resendCooldown;
     private final int maxAttempts;
     private final String pepper;
+    private final String fixedCode;
 
     CustomerRegistrationService(UserRepository users, PhoneVerificationChallengeRepository challenges,
             OtpSender otpSender, JdbcTemplate jdbc, EmployeeAuthenticationService authentication,
             @Value("${hyperfeeds.otp.ttl}") Duration ttl,
             @Value("${hyperfeeds.otp.resend-cooldown}") Duration resendCooldown,
             @Value("${hyperfeeds.otp.max-attempts}") int maxAttempts,
-            @Value("${hyperfeeds.otp.pepper}") String pepper) {
+            @Value("${hyperfeeds.otp.pepper}") String pepper,
+            @Value("${hyperfeeds.otp.fixed-code:}") String fixedCode) {
         this.users = users; this.challenges = challenges; this.otpSender = otpSender; this.jdbc = jdbc; this.authentication = authentication;
         this.ttl = ttl; this.resendCooldown = resendCooldown; this.maxAttempts = maxAttempts; this.pepper = pepper;
+        this.fixedCode = fixedCode.trim();
+        if (!this.fixedCode.isEmpty() && !this.fixedCode.matches("\\d{6}"))
+            throw new IllegalArgumentException("OTP_FIXED_CODE must contain exactly six digits");
     }
 
     @Transactional
@@ -55,10 +60,14 @@ class CustomerRegistrationService {
             enforceCooldown(user);
             user.firstName = firstName.trim(); user.lastName = lastName.trim(); user.updatedAt = Instant.now();
         }
-        String code = "%06d".formatted(random.nextInt(1_000_000));
+        String code = fixedCode.isEmpty() ? "%06d".formatted(random.nextInt(1_000_000)) : fixedCode;
         Instant expiresAt = Instant.now().plus(ttl);
         var challenge = challenges.save(new PhoneVerificationChallenge(user, hash(code), expiresAt, maxAttempts));
-        otpSender.send(phone, code);
+        if (fixedCode.isEmpty()) {
+            otpSender.send(phone, code);
+        } else {
+            log.warn("customer.signup.fixed_otp_test_mode challengeId={} destination={}", challenge.id, mask(phone));
+        }
         log.info("customer.signup.otp_dispatched challengeId={} destination={} expiresAt={}",
                 challenge.id, mask(phone), expiresAt);
         return new SignupResult(challenge.id, mask(phone), expiresAt, resendCooldown.toSeconds());
