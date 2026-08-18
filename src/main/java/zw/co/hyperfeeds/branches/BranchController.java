@@ -2,6 +2,7 @@ package zw.co.hyperfeeds.branches;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.Size;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
@@ -23,8 +24,9 @@ class BranchController {
 
     record Request(@NotBlank @Size(max=40) String code, @NotBlank @Size(max=160) String name,
             @NotBlank String address, @NotBlank @Size(max=32) String phoneNumber,
-            @Size(max=32) String whatsappNumber, @Size(max=255) String openingHours,
+            @Size(max=32) String whatsappNumber, @Email @Size(max=255) String emailAddress,
+            @Size(max=255) String openingHours,
             boolean collectionEnabled, boolean active) {
-        BranchService.BranchInput input() { return new BranchService.BranchInput(code,name,address,phoneNumber,whatsappNumber,openingHours,collectionEnabled,active); }
+        BranchService.BranchInput input() { return new BranchService.BranchInput(code,name,address,phoneNumber,whatsappNumber,emailAddress,openingHours,collectionEnabled,active); }
     }
 }
