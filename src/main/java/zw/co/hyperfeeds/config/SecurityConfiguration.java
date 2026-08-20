@@ -44,12 +44,15 @@ public class SecurityConfiguration {
         if (!contextPath.isEmpty() && path.startsWith(contextPath)) {
             path = path.substring(contextPath.length());
         }
-        if (path.startsWith("/auth/customers/")
+        if (path.equals("/auth/customers/signup")
+                || path.equals("/auth/customers/verify-phone")
+                || path.equals("/auth/customers/refresh")
                 || path.equals("/auth/employees/login")
                 || path.equals("/auth/employees/refresh")
                 || path.equals("/actuator/health")
                 || path.startsWith("/swagger-ui")
                 || path.startsWith("/v3/api-docs")
+                || path.startsWith("/feed-calculator")
                 || path.equals("/payments/paynow/callback")) {
             return true;
         }

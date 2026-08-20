@@ -7,13 +7,18 @@ import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.security.core.Authentication;
 import java.util.UUID;
 
 @RestController
 @RequestMapping("/auth/customers")
 class CustomerAuthController {
     private final CustomerRegistrationService registration;
-    CustomerAuthController(CustomerRegistrationService registration) { this.registration = registration; }
+    private final CustomerProfileService profiles;
+    CustomerAuthController(CustomerRegistrationService registration, CustomerProfileService profiles) {
+        this.registration = registration;
+        this.profiles = profiles;
+    }
 
     @PostMapping("/signup")
     @ResponseStatus(HttpStatus.ACCEPTED)
@@ -27,6 +32,11 @@ class CustomerAuthController {
     }
     @PostMapping("/refresh") EmployeeAuthenticationService.TokenResult refresh(@Valid @RequestBody RefreshRequest request) {
         return registration.refresh(request.refreshToken());
+    }
+
+    @GetMapping("/me")
+    CustomerProfileService.CustomerProfile profile(Authentication authentication) {
+        return profiles.get(CurrentUser.id(authentication));
     }
 
     record SignupRequest(@NotBlank String phoneNumber,

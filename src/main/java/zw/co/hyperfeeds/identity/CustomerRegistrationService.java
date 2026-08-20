@@ -50,15 +50,16 @@ class CustomerRegistrationService {
         String phone = normalizePhone(rawPhone);
         log.info("customer.signup.requested destination={}", mask(phone));
         User user = users.findByPhoneNumber(phone).orElse(null);
-        if (user != null && user.phoneVerified) {
-            throw new IdentityException(HttpStatus.CONFLICT, "PHONE_ALREADY_REGISTERED", "That phone number is already registered");
-        }
         if (user == null) {
             user = users.saveAndFlush(new User(phone, firstName.trim(), lastName.trim()));
             jdbc.update("insert into user_roles(user_id, role_id) select ?, id from roles where code = 'CUSTOMER' on conflict do nothing", user.id);
         } else {
             enforceCooldown(user);
-            user.firstName = firstName.trim(); user.lastName = lastName.trim(); user.updatedAt = Instant.now();
+            if (!user.phoneVerified) {
+                user.firstName = firstName.trim(); user.lastName = lastName.trim(); user.updatedAt = Instant.now();
+            } else {
+                log.info("customer.login.otp_requested userId={} destination={}", user.id, mask(phone));
+            }
         }
         String code = fixedCode.isEmpty() ? "%06d".formatted(random.nextInt(1_000_000)) : fixedCode;
         Instant expiresAt = Instant.now().plus(ttl);
@@ -86,10 +87,13 @@ class CustomerRegistrationService {
             challenge.attemptsRemaining--;
             throw new IdentityException(HttpStatus.UNPROCESSABLE_ENTITY, "OTP_INVALID", "The verification code is incorrect");
         }
+        boolean firstVerification = !challenge.user.phoneVerified;
         challenge.verifiedAt = Instant.now();
         challenge.user.phoneVerified = true;
         challenge.user.updatedAt = Instant.now();
-        jdbc.update("insert into notifications(user_id,type,title,body) values (?,'WELCOME','Welcome to Hyperfeeds','Your Hyperfeeds account is ready to use.')", challenge.user.id);
+        if (firstVerification) {
+            jdbc.update("insert into notifications(user_id,type,title,body) values (?,'WELCOME','Welcome to Hyperfeeds','Your Hyperfeeds account is ready to use.')", challenge.user.id);
+        }
         log.info("customer.signup.verified challengeId={} userId={}", challenge.id, challenge.user.id);
         return authentication.issueTokenPair(challenge.user);
     }
