@@ -67,7 +67,7 @@ public class CatalogueService {
     }
 
     @Transactional
-    @PreAuthorize("hasRole('ADMIN') or (hasRole('BRANCH_MANAGER') and @branchAccess.canAccess(authentication, #branchId))")
+    @PreAuthorize("hasAnyRole('ADMIN','MAIN_MANAGER')")
     public void setPrice(UUID branchId, UUID productId, PriceInput input) {
         jdbc.sql("update branch_prices set effective_to=now() where branch_id=:branch and product_id=:product and effective_to is null")
                 .param("branch",branchId).param("product",productId).update();

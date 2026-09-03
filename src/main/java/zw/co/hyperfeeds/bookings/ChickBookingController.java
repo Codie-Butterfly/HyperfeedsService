@@ -67,7 +67,7 @@ public class ChickBookingController {
     }
 
     @PostMapping("/batches")
-    @PreAuthorize("hasRole('ADMIN') or (hasRole('BRANCH_MANAGER') and @branchAccess.canAccess(authentication,#request.branchId))")
+    @PreAuthorize("hasAnyRole('ADMIN','MAIN_MANAGER') or (hasRole('BRANCH_MANAGER') and @branchAccess.canAccess(authentication,#request.branchId))")
     @ResponseStatus(HttpStatus.CREATED)
     public UUID createBatch(@Valid @RequestBody BatchRequest request) {
         UUID id = UUID.randomUUID();
@@ -199,7 +199,7 @@ public class ChickBookingController {
     }
 
     @GetMapping("/batches/{id}/summary")
-    @PreAuthorize("hasAnyRole('ADMIN','BRANCH_MANAGER')")
+    @PreAuthorize("hasAnyRole('ADMIN','MAIN_MANAGER','BRANCH_MANAGER')")
     public BatchSummary summary(@PathVariable UUID id) {
         Map<String, Object> batch = jdbc.sql("""
                 select id, branch_id, chick_type, breed, cutoff_at,
@@ -233,7 +233,7 @@ public class ChickBookingController {
     }
 
     @PatchMapping("/batches/{id}/delivery-date")
-    @PreAuthorize("hasAnyRole('ADMIN','BRANCH_MANAGER')")
+    @PreAuthorize("hasAnyRole('ADMIN','MAIN_MANAGER','BRANCH_MANAGER')")
     @Transactional
     public DeliveryDateChange changeDeliveryDate(@PathVariable UUID id,
             @Valid @RequestBody DeliveryDateRequest request) {

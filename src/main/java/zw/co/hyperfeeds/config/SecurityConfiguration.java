@@ -60,6 +60,7 @@ public class SecurityConfiguration {
                 && (path.startsWith("/branches")
                     || path.startsWith("/catalogue")
                     || path.startsWith("/content")
+                    || path.startsWith("/advertisements")
                     || path.equals("/chicks/availability"));
     }
 
