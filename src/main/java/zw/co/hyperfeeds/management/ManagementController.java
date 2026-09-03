@@ -54,6 +54,20 @@ public class ManagementController {
                 .param("product",productId).param("amount",r.amount).param("currency",r.currency.toUpperCase()).update();
     }
 
+    @GetMapping("/prices")
+    @PreAuthorize("hasAnyRole('ADMIN','MAIN_MANAGER')")
+    List<Map<String,Object>> companyPrices() {
+        return jdbc.sql("""
+            select p.id,p.sku,p.name,min(bp.amount) amount,
+                   min(trim(bp.currency)) currency,count(bp.branch_id) priced_branches
+            from products p
+            left join branch_prices bp on bp.product_id=p.id and bp.effective_to is null
+            where p.active and p.published
+            group by p.id,p.sku,p.name
+            order by p.name
+            """).query().listOfRows();
+    }
+
     @GetMapping("/chicks/demand")
     @PreAuthorize("hasAnyRole('ADMIN','MAIN_MANAGER')")
     List<Map<String,Object>> chickDemand() {
