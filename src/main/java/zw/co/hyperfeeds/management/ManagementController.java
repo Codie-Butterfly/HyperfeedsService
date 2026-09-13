@@ -95,13 +95,28 @@ public class ManagementController {
     @PreAuthorize("hasAnyRole('ADMIN','MAIN_MANAGER')")
     List<Map<String,Object>> chickDemand() {
         return jdbc.sql("""
-            select b.id branch_id,b.name branch_name,cb.chick_type,cb.breed,cb.delivery_date,
-                   coalesce(sum(case when bk.status in ('ORDERED','CONFIRMED') then bk.quantity else 0 end),0) total_chicks,
-                   count(bk.id) filter(where bk.status in ('ORDERED','CONFIRMED')) order_count
-            from chick_batches cb join branches b on b.id=cb.branch_id
-            left join chick_bookings bk on bk.batch_id=cb.id
-            group by b.id,b.name,cb.chick_type,cb.breed,cb.delivery_date
-            order by cb.delivery_date,b.name,cb.chick_type,cb.breed
+            select booking_batch.id booking_batch_id,booking_batch.name booking_batch_name,
+                   booking_batch.start_date,booking_batch.end_date delivery_date,
+                   branch.id branch_id,branch.name branch_name,
+                   config.chick_type,config.breed,
+                   coalesce(sum(booking.quantity) filter(where booking.status in ('ORDERED','CONFIRMED')),0) total_chicks,
+                   count(booking.id) filter(where booking.status in ('ORDERED','CONFIRMED')) order_count
+            from chick_booking_batches booking_batch
+            cross join branches branch
+            cross join chick_breed_configs config
+            left join chick_batches offering
+              on offering.branch_id=branch.id
+             and offering.chick_type=config.chick_type
+             and lower(offering.breed)=lower(config.breed)
+            left join chick_bookings booking
+              on booking.batch_id=offering.id
+             and booking.booking_batch_id=booking_batch.id
+            where booking_batch.status='OPEN'
+              and current_date between booking_batch.start_date and booking_batch.end_date
+              and branch.active and config.available
+            group by booking_batch.id,booking_batch.name,booking_batch.start_date,booking_batch.end_date,
+                     branch.id,branch.name,config.chick_type,config.breed
+            order by branch.name,config.chick_type,config.breed
             """).query().listOfRows();
     }
 
