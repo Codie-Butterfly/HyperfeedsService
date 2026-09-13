@@ -105,6 +105,38 @@ public class ManagementController {
             """).query().listOfRows();
     }
 
+    @GetMapping("/chicks/breeds")
+    @PreAuthorize("hasAnyRole('ADMIN','MAIN_MANAGER')")
+    List<Map<String,Object>> chickBreeds() {
+        return jdbc.sql("select id,chick_type,breed,price_per_chick,currency,available from chick_breed_configs order by chick_type,breed")
+                .query().listOfRows();
+    }
+
+    @PostMapping("/chicks/breeds")
+    @PreAuthorize("hasAnyRole('ADMIN','MAIN_MANAGER')")
+    @ResponseStatus(HttpStatus.CREATED)
+    UUID createChickBreed(@Valid @RequestBody ChickBreedRequest r) {
+        UUID id = UUID.randomUUID();
+        jdbc.sql("insert into chick_breed_configs(id,chick_type,breed,price_per_chick,currency,available) values(:id,:type,:breed,:price,:currency,:available)")
+                .param("id",id).param("type",r.chickType.toUpperCase()).param("breed",r.breed.trim())
+                .param("price",r.pricePerChick).param("currency",r.currency.toUpperCase()).param("available",r.available).update();
+        return id;
+    }
+
+    @PutMapping("/chicks/breeds/{id}")
+    @PreAuthorize("hasAnyRole('ADMIN','MAIN_MANAGER')")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Transactional
+    void updateChickBreed(@PathVariable UUID id,@Valid @RequestBody ChickBreedRequest r) {
+        int changed = jdbc.sql("update chick_breed_configs set chick_type=:type,breed=:breed,price_per_chick=:price,currency=:currency,available=:available,updated_at=now() where id=:id")
+                .param("id",id).param("type",r.chickType.toUpperCase()).param("breed",r.breed.trim())
+                .param("price",r.pricePerChick).param("currency",r.currency.toUpperCase()).param("available",r.available).update();
+        if (changed == 0) throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Chick breed not found");
+        jdbc.sql("update chick_batches set price_per_chick=:price,currency=:currency where chick_type=:type and lower(breed)=lower(:breed) and status='OPEN'")
+                .param("type",r.chickType.toUpperCase()).param("breed",r.breed.trim())
+                .param("price",r.pricePerChick).param("currency",r.currency.toUpperCase()).update();
+    }
+
     @PostMapping("/notifications")
     @PreAuthorize("hasAnyRole('ADMIN','MAIN_MANAGER','BRANCH_MANAGER')")
     @ResponseStatus(HttpStatus.CREATED)
@@ -134,6 +166,11 @@ public class ManagementController {
                           @NotBlank @Size(max=120) String category,@NotBlank @Size(max=80) String packSize,
                           @Size(max=2000) String description,@NotNull @DecimalMin("0.00") BigDecimal amount,
                           @NotBlank @Pattern(regexp="[A-Za-z]{3}") String currency) {}
+    record ChickBreedRequest(@NotBlank @Pattern(regexp="(?i)BROILER|LAYER") String chickType,
+                             @NotBlank @Size(max=120) String breed,
+                             @NotNull @DecimalMin("0.00") BigDecimal pricePerChick,
+                             @NotBlank @Pattern(regexp="[A-Za-z]{3}") String currency,
+                             boolean available) {}
     record PriceRequest(@NotNull @DecimalMin("0.00") BigDecimal amount,@NotBlank @Pattern(regexp="[A-Za-z]{3}") String currency) {}
     record NotificationRequest(@NotBlank String audience,UUID branchId,@NotBlank @Size(max=200) String title,@NotBlank @Size(max=5000) String body) {}
 }

@@ -52,14 +52,17 @@ public class ChickBookingController {
     @GetMapping("/availability")
     public List<OrderingOption> availability(@RequestParam UUID branchId) {
         return jdbc.sql("""
-                select id, branch_id, chick_type, breed, cutoff_at, delivery_date,
-                       price_per_chick, currency
-                from chick_batches
-                where branch_id = :branch
-                  and active
-                  and status = 'OPEN'
-                  and cutoff_at > now()
-                order by chick_type, breed, cutoff_at
+                select batch.id, batch.branch_id, batch.chick_type, batch.breed,
+                       batch.cutoff_at, batch.delivery_date,
+                       config.price_per_chick, config.currency
+                from chick_batches batch
+                join chick_breed_configs config
+                  on config.chick_type=batch.chick_type and lower(config.breed)=lower(batch.breed)
+                where batch.branch_id = :branch
+                  and batch.active and config.available
+                  and batch.status = 'OPEN'
+                  and batch.cutoff_at > now()
+                order by batch.chick_type, batch.breed, batch.cutoff_at
                 """)
                 .param("branch", branchId)
                 .query(OrderingOption.class)
@@ -99,15 +102,18 @@ public class ChickBookingController {
     public BookingReceipt order(Authentication authentication, @Valid @RequestBody OrderRequest request) {
         String type = request.chickType.toUpperCase();
         Map<String, Object> batch = jdbc.sql("""
-                select id, cutoff_at, delivery_date, price_per_chick, currency
-                from chick_batches
-                where branch_id = :branch
-                  and chick_type = :type
-                  and lower(breed) = lower(:breed)
-                  and active
-                  and status = 'OPEN'
-                  and cutoff_at > now()
-                order by cutoff_at
+                select batch.id, batch.cutoff_at, batch.delivery_date,
+                       config.price_per_chick, config.currency
+                from chick_batches batch
+                join chick_breed_configs config
+                  on config.chick_type=batch.chick_type and lower(config.breed)=lower(batch.breed)
+                where batch.branch_id = :branch
+                  and batch.chick_type = :type
+                  and lower(batch.breed) = lower(:breed)
+                  and batch.active and config.available
+                  and batch.status = 'OPEN'
+                  and batch.cutoff_at > now()
+                order by batch.cutoff_at
                 limit 1
                 for update
                 """)
