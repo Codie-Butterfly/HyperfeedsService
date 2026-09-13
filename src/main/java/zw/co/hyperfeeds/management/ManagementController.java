@@ -137,6 +137,46 @@ public class ManagementController {
                 .param("price",r.pricePerChick).param("currency",r.currency.toUpperCase()).update();
     }
 
+    @GetMapping("/chicks/booking-batches")
+    @PreAuthorize("hasAnyRole('ADMIN','MAIN_MANAGER')")
+    List<Map<String,Object>> bookingBatches() {
+        jdbc.sql("update chick_booking_batches set status='CLOSED',updated_at=now() where status='OPEN' and end_date < current_date").update();
+        return jdbc.sql("select id,name,start_date,end_date,status from chick_booking_batches order by created_at desc")
+                .query().listOfRows();
+    }
+
+    @PostMapping("/chicks/booking-batches")
+    @PreAuthorize("hasAnyRole('ADMIN','MAIN_MANAGER')")
+    @ResponseStatus(HttpStatus.CREATED)
+    UUID createBookingBatch(@Valid @RequestBody BookingBatchRequest r) {
+        if (r.endDate.isBefore(r.startDate)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"End date must be on or after start date");
+        UUID id=UUID.randomUUID();
+        jdbc.sql("insert into chick_booking_batches(id,name,start_date,end_date,status) values(:id,:name,:start,:end,'DRAFT')")
+                .param("id",id).param("name",r.name.trim()).param("start",r.startDate).param("end",r.endDate).update();
+        return id;
+    }
+
+    @PostMapping("/chicks/booking-batches/{id}/open")
+    @PreAuthorize("hasAnyRole('ADMIN','MAIN_MANAGER')")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Transactional
+    void openBookingBatch(@PathVariable UUID id) {
+        jdbc.sql("update chick_booking_batches set status='CLOSED',updated_at=now() where status='OPEN' and end_date < current_date").update();
+        int other=jdbc.sql("select count(*) from chick_booking_batches where status='OPEN' and id<>:id").param("id",id).query(Integer.class).single();
+        if(other>0) throw new ResponseStatusException(HttpStatus.CONFLICT,"Close the current open batch first");
+        int changed=jdbc.sql("update chick_booking_batches set status='OPEN',updated_at=now() where id=:id and status='DRAFT' and start_date<=current_date and end_date>=current_date")
+                .param("id",id).update();
+        if(changed==0) throw new ResponseStatusException(HttpStatus.CONFLICT,"Only a draft batch within its start and end dates can be opened");
+    }
+
+    @PostMapping("/chicks/booking-batches/{id}/close")
+    @PreAuthorize("hasAnyRole('ADMIN','MAIN_MANAGER')")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    void closeBookingBatch(@PathVariable UUID id) {
+        int changed=jdbc.sql("update chick_booking_batches set status='CLOSED',updated_at=now() where id=:id and status='OPEN'").param("id",id).update();
+        if(changed==0) throw new ResponseStatusException(HttpStatus.CONFLICT,"The batch is not open");
+    }
+
     @PostMapping("/notifications")
     @PreAuthorize("hasAnyRole('ADMIN','MAIN_MANAGER','BRANCH_MANAGER')")
     @ResponseStatus(HttpStatus.CREATED)
@@ -171,6 +211,7 @@ public class ManagementController {
                              @NotNull @DecimalMin("0.00") BigDecimal pricePerChick,
                              @NotBlank @Pattern(regexp="[A-Za-z]{3}") String currency,
                              boolean available) {}
+    record BookingBatchRequest(@NotBlank @Size(max=120) String name,@NotNull LocalDate startDate,@NotNull LocalDate endDate) {}
     record PriceRequest(@NotNull @DecimalMin("0.00") BigDecimal amount,@NotBlank @Pattern(regexp="[A-Za-z]{3}") String currency) {}
     record NotificationRequest(@NotBlank String audience,UUID branchId,@NotBlank @Size(max=200) String title,@NotBlank @Size(max=5000) String body) {}
 }

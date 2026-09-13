@@ -62,6 +62,9 @@ public class ChickBookingController {
                   and batch.active and config.available
                   and batch.status = 'OPEN'
                   and batch.cutoff_at > now()
+                  and exists(select 1 from chick_booking_batches booking_batch
+                             where booking_batch.status='OPEN'
+                               and current_date between booking_batch.start_date and booking_batch.end_date)
                 order by batch.chick_type, batch.breed, batch.cutoff_at
                 """)
                 .param("branch", branchId)
@@ -113,6 +116,9 @@ public class ChickBookingController {
                   and batch.active and config.available
                   and batch.status = 'OPEN'
                   and batch.cutoff_at > now()
+                  and exists(select 1 from chick_booking_batches booking_batch
+                             where booking_batch.status='OPEN'
+                               and current_date between booking_batch.start_date and booking_batch.end_date)
                 order by batch.cutoff_at
                 limit 1
                 for update
