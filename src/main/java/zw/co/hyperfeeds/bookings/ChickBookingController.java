@@ -52,20 +52,17 @@ public class ChickBookingController {
     @GetMapping("/availability")
     public List<OrderingOption> availability(@RequestParam UUID branchId) {
         return jdbc.sql("""
-                select batch.id, batch.branch_id, batch.chick_type, batch.breed,
-                       batch.cutoff_at, booking_batch.end_date delivery_date,
+                select config.id, cast(:branch as uuid) branch_id,
+                       config.chick_type, config.breed,
+                       ((booking_batch.end_date + 1)::timestamp at time zone 'Africa/Harare') cutoff_at,
+                       booking_batch.end_date delivery_date,
                        config.price_per_chick, config.currency
-                from chick_batches batch
-                join chick_breed_configs config
-                  on config.chick_type=batch.chick_type and lower(config.breed)=lower(batch.breed)
-                join chick_booking_batches booking_batch
-                  on booking_batch.status='OPEN'
-                 and current_date between booking_batch.start_date and booking_batch.end_date
-                where batch.branch_id = :branch
-                  and batch.active and config.available
-                  and batch.status = 'OPEN'
-                  and batch.cutoff_at > now()
-                order by batch.chick_type, batch.breed, batch.cutoff_at
+                from chick_breed_configs config
+                cross join chick_booking_batches booking_batch
+                where config.available
+                  and booking_batch.status='OPEN'
+                  and current_date between booking_batch.start_date and booking_batch.end_date
+                order by config.chick_type, config.breed
                 """)
                 .param("branch", branchId)
                 .query(OrderingOption.class)
