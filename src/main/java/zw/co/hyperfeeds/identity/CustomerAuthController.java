@@ -5,6 +5,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
+import jakarta.validation.constraints.Email;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.security.core.Authentication;
@@ -39,10 +40,17 @@ class CustomerAuthController {
         return profiles.get(CurrentUser.id(authentication));
     }
 
+    @PutMapping("/me/email")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    void updateEmail(Authentication authentication, @Valid @RequestBody EmailRequest request) {
+        profiles.updateEmail(CurrentUser.id(authentication), request.email());
+    }
+
     record SignupRequest(@NotBlank String phoneNumber,
             @NotBlank @Size(max = 100) String firstName,
             @NotBlank @Size(max = 100) String lastName) {}
     record VerifyRequest(@NotNull UUID challengeId,
             @NotBlank @Pattern(regexp = "\\d{6}", message = "must be a six-digit code") String code) {}
     record RefreshRequest(@NotBlank String refreshToken) {}
+    record EmailRequest(@NotBlank @Email @Size(max = 320) String email) {}
 }

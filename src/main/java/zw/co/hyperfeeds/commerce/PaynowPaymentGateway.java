@@ -32,6 +32,11 @@ class PaynowPaymentGateway implements PaymentGateway {
     }
 
     public Payment start(String reference, BigDecimal amount, String currency, String phone) {
+        return start(reference, amount, currency, phone, null);
+    }
+
+    @Override
+    public Payment start(String reference, BigDecimal amount, String currency, String phone, String email) {
         log.info("PAYNOW_INIT_START reference={} amount={} currency={} customerPhone={}",
                 reference, amount, currency, maskPhone(phone));
 
@@ -50,7 +55,7 @@ class PaynowPaymentGateway implements PaymentGateway {
                 reference, maskPhone(local), mobileMethod, !resultUrl.isBlank());
 
         var paynow = new Paynow(id, key, resultUrl);
-        var payment = paynow.createPayment(reference);
+        var payment = email == null ? paynow.createPayment(reference) : paynow.createPayment(reference, email);
         payment.add("Hyperfeeds order " + reference, amount.doubleValue());
 
         MobileInitResponse response;

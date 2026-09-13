@@ -43,7 +43,7 @@ class OrderCheckoutController {
     @ResponseStatus(HttpStatus.CREATED)
     Checkout checkout(Authentication authentication, @Valid @RequestBody CheckoutRequest request) {
         UUID user = CurrentUser.id(authentication);
-        Map<String, Object> cart = jdbc.sql("select c.id,c.branch_id,u.phone_number from carts c join users u on u.id=c.user_id where c.user_id=:u and c.status='ACTIVE'")
+        Map<String, Object> cart = jdbc.sql("select c.id,c.branch_id,u.phone_number,u.email from carts c join users u on u.id=c.user_id where c.user_id=:u and c.status='ACTIVE'")
                 .param("u", user).query().listOfRows().stream().findFirst()
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "Cart is empty"));
         UUID cartId = (UUID) cart.get("id");
@@ -90,7 +90,11 @@ class OrderCheckoutController {
         if (payAtShop) {
             instructions = "Quote order number " + reference + " at the shop within " + expiryHours + " hours.";
         } else {
-            PaymentGateway.Payment payment = gateway.start(reference, total, currency, (String) cart.get("phone_number"));
+            String email = (String) cart.get("email");
+            if (email == null || email.isBlank()) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "Add an email address to your profile before paying online");
+            }
+            PaymentGateway.Payment payment = gateway.start(reference, total, currency, (String) cart.get("phone_number"), email);
             paynowReference = payment.reference();
             instructions = payment.instructions();
             jdbc.sql("insert into payments(order_id,provider,provider_reference,status,poll_url,instructions,amount,currency) values(:o,'PAYNOW',:ref,'SENT_TO_SUBSCRIBER',:poll,:instructions,:amount,:currency)")

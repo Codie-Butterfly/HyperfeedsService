@@ -18,7 +18,7 @@ class CustomerProfileService {
 
     CustomerProfile get(UUID userId) {
         CustomerRow user = jdbc.sql("""
-                select id,phone_number,first_name,last_name,phone_verified,preferred_branch_id
+                select id,phone_number,email,first_name,last_name,phone_verified,preferred_branch_id
                 from users where id=:id and active and not employee
                 """).param("id", userId).query(CustomerRow.class).optional()
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Customer profile not found"));
@@ -26,12 +26,17 @@ class CustomerProfileService {
                 select r.code from roles r join user_roles ur on ur.role_id=r.id
                 where ur.user_id=:id order by r.code
                 """).param("id", userId).query(String.class).list();
-        return new CustomerProfile(user.id(), user.phoneNumber(), user.firstName(), user.lastName(),
+        return new CustomerProfile(user.id(), user.phoneNumber(), user.email(), user.firstName(), user.lastName(),
                 user.phoneVerified(), user.preferredBranchId(), roles);
     }
 
-    private record CustomerRow(UUID id, String phoneNumber, String firstName, String lastName,
+    void updateEmail(UUID userId, String email) {
+        jdbc.sql("update users set email=:email,updated_at=now() where id=:id and active and not employee")
+                .param("email", email.trim().toLowerCase()).param("id", userId).update();
+    }
+
+    private record CustomerRow(UUID id, String phoneNumber, String email, String firstName, String lastName,
                                boolean phoneVerified, UUID preferredBranchId) {}
-    record CustomerProfile(UUID id, String phoneNumber, String firstName, String lastName,
+    record CustomerProfile(UUID id, String phoneNumber, String email, String firstName, String lastName,
                            boolean phoneVerified, UUID preferredBranchId, List<String> roles) {}
 }
