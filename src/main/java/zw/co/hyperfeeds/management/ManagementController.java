@@ -156,6 +156,19 @@ public class ManagementController {
         return id;
     }
 
+    @PutMapping("/chicks/booking-batches/{id}")
+    @PreAuthorize("hasAnyRole('ADMIN','MAIN_MANAGER')")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    void updateBookingBatch(@PathVariable UUID id,@Valid @RequestBody BookingBatchRequest r) {
+        if (r.endDate.isBefore(r.startDate)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"End date must be on or after start date");
+        int changed=jdbc.sql("""
+                update chick_booking_batches set name=:name,start_date=:start,end_date=:end,updated_at=now()
+                where id=:id and status in ('DRAFT','OPEN')
+                  and (status='DRAFT' or (:start<=current_date and :end>=current_date))
+                """).param("id",id).param("name",r.name.trim()).param("start",r.startDate).param("end",r.endDate).update();
+        if(changed==0) throw new ResponseStatusException(HttpStatus.CONFLICT,"Only draft or active open batches can be edited");
+    }
+
     @PostMapping("/chicks/booking-batches/{id}/open")
     @PreAuthorize("hasAnyRole('ADMIN','MAIN_MANAGER')")
     @ResponseStatus(HttpStatus.NO_CONTENT)
