@@ -57,7 +57,9 @@ public class ChickBookingController {
                        config.chick_type, config.breed,
                        ((booking_batch.end_date + 1)::timestamp at time zone 'Africa/Harare') cutoff_at,
                        booking_batch.end_date delivery_date,
-                       config.price_per_chick, config.currency
+                       config.price_per_chick, config.currency,
+                       coalesce((select config_value::boolean from system_configs where config_key='CHICK_ORDER_DEPOSIT_ENABLED'), false) deposit_required,
+                       coalesce((select config_value::numeric from system_configs where config_key='CHICK_ORDER_DEPOSIT_PERCENTAGE'), 0) deposit_percentage
                 from chick_breed_configs config
                 cross join chick_booking_batches booking_batch
                 where config.available
@@ -124,7 +126,9 @@ public class ChickBookingController {
                        ((booking_batch.end_date + 1)::timestamp at time zone 'Africa/Harare') cutoff_at,
                        booking_batch.end_date delivery_date,
                        config.price_per_chick, config.currency,
-                       booking_batch.id booking_batch_id
+                       booking_batch.id booking_batch_id,
+                       coalesce((select config_value::boolean from system_configs where config_key='CHICK_ORDER_DEPOSIT_ENABLED'), false) deposit_required,
+                       coalesce((select config_value::numeric from system_configs where config_key='CHICK_ORDER_DEPOSIT_PERCENTAGE'), 0) deposit_percentage
                 from chick_breed_configs config
                 cross join chick_booking_batches booking_batch
                 cross join branches pickup
@@ -152,6 +156,11 @@ public class ChickBookingController {
         UUID bookingBatchId = (UUID) batch.get("booking_batch_id");
         BigDecimal unitPrice = (BigDecimal) batch.get("price_per_chick");
         BigDecimal total = unitPrice.multiply(BigDecimal.valueOf(request.quantity));
+        boolean depositRequired = Boolean.TRUE.equals(batch.get("deposit_required"));
+        BigDecimal depositPercentage = (BigDecimal) batch.get("deposit_percentage");
+        BigDecimal depositAmount = depositRequired
+                ? total.multiply(depositPercentage).divide(BigDecimal.valueOf(100))
+                : BigDecimal.ZERO;
         String currency = (String) batch.get("currency");
         LocalDate deliveryDate = toLocalDate(batch.get("delivery_date"));
         OffsetDateTime cutoffAt = toOffsetDateTime(batch.get("cutoff_at"));
@@ -163,11 +172,11 @@ public class ChickBookingController {
                     id, reference, user_id, batch_id, quantity, status,
                     unit_price, total_amount, currency, delivery_date_snapshot,
                     booking_batch_id, pickup_branch_id, chick_breed_config_id,
-                    chick_type, breed
+                    chick_type, breed, deposit_required, deposit_percentage, deposit_amount
                 ) values (
                     :id, :reference, :user, null, :quantity, 'ORDERED',
                     :unitPrice, :total, :currency, :deliveryDate, :bookingBatch
-                    ,:branch, :breedConfig, :type, :breed
+                    ,:branch, :breedConfig, :type, :breed, :depositRequired, :depositPercentage, :depositAmount
                 )
                 """)
                 .param("id", id)
@@ -183,11 +192,15 @@ public class ChickBookingController {
                 .param("breedConfig", breedConfigId)
                 .param("type", type)
                 .param("breed", request.breed.trim())
+                .param("depositRequired", depositRequired)
+                .param("depositPercentage", depositPercentage)
+                .param("depositAmount", depositAmount)
                 .update();
 
         return new BookingReceipt(id, reference, "ORDERED", breedConfigId, type,
                 request.breed.trim(), request.branchId, request.quantity,
-                unitPrice, total, currency, cutoffAt, deliveryDate);
+                unitPrice, total, currency, cutoffAt, deliveryDate,
+                depositRequired, depositPercentage, depositAmount);
     }
 
     @GetMapping("/bookings")
@@ -323,7 +336,8 @@ public class ChickBookingController {
 
     public record OrderingOption(UUID id, UUID branchId, String chickType,
             String breed, OffsetDateTime cutoffAt, LocalDate deliveryDate,
-            BigDecimal pricePerChick, String currency) {}
+            BigDecimal pricePerChick, String currency, boolean depositRequired,
+            BigDecimal depositPercentage) {}
 
     private static LocalDate toLocalDate(Object value) {
         if (value instanceof LocalDate date) return date;
@@ -354,7 +368,8 @@ public class ChickBookingController {
     public record BookingReceipt(UUID id, String reference, String status,
             UUID batchId, String chickType, String breed, UUID branchId,
             int quantity, BigDecimal unitPrice, BigDecimal totalAmount,
-            String currency, OffsetDateTime cutoffAt, LocalDate deliveryDate) {}
+            String currency, OffsetDateTime cutoffAt, LocalDate deliveryDate,
+            boolean depositRequired, BigDecimal depositPercentage, BigDecimal depositAmount) {}
 
     public record CustomerOrder(UUID id, String reference, UUID batchId,
             UUID branchId, String chickType, String breed, int quantity,
