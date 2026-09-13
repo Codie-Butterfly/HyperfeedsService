@@ -30,6 +30,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -152,8 +153,8 @@ public class ChickBookingController {
         BigDecimal unitPrice = (BigDecimal) batch.get("price_per_chick");
         BigDecimal total = unitPrice.multiply(BigDecimal.valueOf(request.quantity));
         String currency = (String) batch.get("currency");
-        LocalDate deliveryDate = (LocalDate) batch.get("delivery_date");
-        OffsetDateTime cutoffAt = (OffsetDateTime) batch.get("cutoff_at");
+        LocalDate deliveryDate = toLocalDate(batch.get("delivery_date"));
+        OffsetDateTime cutoffAt = toOffsetDateTime(batch.get("cutoff_at"));
         UUID id = UUID.randomUUID();
         String reference = "CHK-" + id.toString().substring(0, 8).toUpperCase();
 
@@ -323,6 +324,21 @@ public class ChickBookingController {
     public record OrderingOption(UUID id, UUID branchId, String chickType,
             String breed, OffsetDateTime cutoffAt, LocalDate deliveryDate,
             BigDecimal pricePerChick, String currency) {}
+
+    private static LocalDate toLocalDate(Object value) {
+        if (value instanceof LocalDate date) return date;
+        if (value instanceof java.sql.Date date) return date.toLocalDate();
+        return LocalDate.parse(value.toString());
+    }
+
+    private static OffsetDateTime toOffsetDateTime(Object value) {
+        if (value instanceof OffsetDateTime dateTime) return dateTime;
+        if (value instanceof java.sql.Timestamp timestamp) {
+            return timestamp.toInstant().atOffset(ZoneOffset.UTC);
+        }
+        if (value instanceof Instant instant) return instant.atOffset(ZoneOffset.UTC);
+        return OffsetDateTime.parse(value.toString());
+    }
 
     public record BatchRequest(@NotNull UUID branchId,
             @Pattern(regexp = "(?i)BROILER|LAYER") String chickType,
