@@ -24,9 +24,9 @@ class PaynowPaymentGateway implements PaymentGateway {
             @Value("${hyperfeeds.paynow.integration-id}") String id,
             @Value("${hyperfeeds.paynow.integration-key}") String key,
             @Value("${hyperfeeds.paynow.result-url}") String resultUrl) {
-        this.id = id;
-        this.key = key;
-        this.resultUrl = resultUrl;
+        this.id = id.trim();
+        this.key = key.trim();
+        this.resultUrl = resultUrl.trim();
         log.info("Paynow gateway initialized: credentialsConfigured={}, callbackConfigured={}",
                 !id.isBlank() && !key.isBlank(), !resultUrl.isBlank());
     }
