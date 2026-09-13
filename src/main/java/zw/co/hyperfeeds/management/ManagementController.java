@@ -167,6 +167,8 @@ public class ManagementController {
                   and (status='DRAFT' or (:start<=current_date and :end>=current_date))
                 """).param("id",id).param("name",r.name.trim()).param("start",r.startDate).param("end",r.endDate).update();
         if(changed==0) throw new ResponseStatusException(HttpStatus.CONFLICT,"Only draft or active open batches can be edited");
+        jdbc.sql("update chick_bookings set delivery_date_snapshot=:date where booking_batch_id=:id and status in ('ORDERED','CONFIRMED')")
+                .param("date",r.endDate).param("id",id).update();
     }
 
     @PostMapping("/chicks/booking-batches/{id}/open")
@@ -180,6 +182,10 @@ public class ManagementController {
         int changed=jdbc.sql("update chick_booking_batches set status='OPEN',updated_at=now() where id=:id and status='DRAFT' and start_date<=current_date and end_date>=current_date")
                 .param("id",id).update();
         if(changed==0) throw new ResponseStatusException(HttpStatus.CONFLICT,"Only a draft batch within its start and end dates can be opened");
+        Map<String,Object> batch=jdbc.sql("select name,start_date,end_date from chick_booking_batches where id=:id").param("id",id).query().singleRow();
+        String body="We are taking orders for chicks from "+batch.get("start_date")+" to "+batch.get("end_date")+". Delivery date will be "+batch.get("end_date")+".";
+        jdbc.sql("insert into notifications(user_id,type,title,body,data) select id,'CHICK_BOOKING_BATCH_OPEN','Chick bookings are open',:body,jsonb_build_object('bookingBatchId',cast(:batch as text),'deliveryDate',cast(:delivery as text)) from users where active and not employee")
+                .param("body",body).param("batch",id).param("delivery",batch.get("end_date")).update();
     }
 
     @PostMapping("/chicks/booking-batches/{id}/close")

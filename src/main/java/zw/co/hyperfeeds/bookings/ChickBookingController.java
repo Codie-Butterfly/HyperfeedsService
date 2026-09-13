@@ -53,18 +53,18 @@ public class ChickBookingController {
     public List<OrderingOption> availability(@RequestParam UUID branchId) {
         return jdbc.sql("""
                 select batch.id, batch.branch_id, batch.chick_type, batch.breed,
-                       batch.cutoff_at, batch.delivery_date,
+                       batch.cutoff_at, booking_batch.end_date delivery_date,
                        config.price_per_chick, config.currency
                 from chick_batches batch
                 join chick_breed_configs config
                   on config.chick_type=batch.chick_type and lower(config.breed)=lower(batch.breed)
+                join chick_booking_batches booking_batch
+                  on booking_batch.status='OPEN'
+                 and current_date between booking_batch.start_date and booking_batch.end_date
                 where batch.branch_id = :branch
                   and batch.active and config.available
                   and batch.status = 'OPEN'
                   and batch.cutoff_at > now()
-                  and exists(select 1 from chick_booking_batches booking_batch
-                             where booking_batch.status='OPEN'
-                               and current_date between booking_batch.start_date and booking_batch.end_date)
                 order by batch.chick_type, batch.breed, batch.cutoff_at
                 """)
                 .param("branch", branchId)
@@ -105,20 +105,21 @@ public class ChickBookingController {
     public BookingReceipt order(Authentication authentication, @Valid @RequestBody OrderRequest request) {
         String type = request.chickType.toUpperCase();
         Map<String, Object> batch = jdbc.sql("""
-                select batch.id, batch.cutoff_at, batch.delivery_date,
-                       config.price_per_chick, config.currency
+                select batch.id, batch.cutoff_at, booking_batch.end_date delivery_date,
+                       config.price_per_chick, config.currency,
+                       booking_batch.id booking_batch_id
                 from chick_batches batch
                 join chick_breed_configs config
                   on config.chick_type=batch.chick_type and lower(config.breed)=lower(batch.breed)
+                join chick_booking_batches booking_batch
+                  on booking_batch.status='OPEN'
+                 and current_date between booking_batch.start_date and booking_batch.end_date
                 where batch.branch_id = :branch
                   and batch.chick_type = :type
                   and lower(batch.breed) = lower(:breed)
                   and batch.active and config.available
                   and batch.status = 'OPEN'
                   and batch.cutoff_at > now()
-                  and exists(select 1 from chick_booking_batches booking_batch
-                             where booking_batch.status='OPEN'
-                               and current_date between booking_batch.start_date and booking_batch.end_date)
                 order by batch.cutoff_at
                 limit 1
                 for update
@@ -136,6 +137,7 @@ public class ChickBookingController {
 
         UUID userId = CurrentUser.id(authentication);
         UUID batchId = (UUID) batch.get("id");
+        UUID bookingBatchId = (UUID) batch.get("booking_batch_id");
         BigDecimal unitPrice = (BigDecimal) batch.get("price_per_chick");
         BigDecimal total = unitPrice.multiply(BigDecimal.valueOf(request.quantity));
         String currency = (String) batch.get("currency");
@@ -147,10 +149,11 @@ public class ChickBookingController {
         jdbc.sql("""
                 insert into chick_bookings(
                     id, reference, user_id, batch_id, quantity, status,
-                    unit_price, total_amount, currency, delivery_date_snapshot
+                    unit_price, total_amount, currency, delivery_date_snapshot,
+                    booking_batch_id
                 ) values (
                     :id, :reference, :user, :batch, :quantity, 'ORDERED',
-                    :unitPrice, :total, :currency, :deliveryDate
+                    :unitPrice, :total, :currency, :deliveryDate, :bookingBatch
                 )
                 """)
                 .param("id", id)
@@ -162,6 +165,7 @@ public class ChickBookingController {
                 .param("total", total)
                 .param("currency", currency)
                 .param("deliveryDate", deliveryDate)
+                .param("bookingBatch", bookingBatchId)
                 .update();
 
         return new BookingReceipt(id, reference, "ORDERED", batchId, type,
