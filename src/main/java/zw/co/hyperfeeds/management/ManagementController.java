@@ -43,6 +43,29 @@ public class ManagementController {
         return id;
     }
 
+    @PostMapping("/products")
+    @PreAuthorize("hasAnyRole('ADMIN','MAIN_MANAGER')")
+    @ResponseStatus(HttpStatus.CREATED)
+    @Transactional
+    UUID createProduct(@Valid @RequestBody ProductRequest r) {
+        UUID category = jdbc.sql("select id from product_categories where lower(name)=lower(:name)")
+                .param("name", r.category.trim()).query(UUID.class).optional()
+                .orElseGet(() -> {
+                    UUID id = UUID.randomUUID();
+                    jdbc.sql("insert into product_categories(id,name,active) values(:id,:name,true)")
+                            .param("id", id).param("name", r.category.trim()).update();
+                    return id;
+                });
+        UUID product = UUID.randomUUID();
+        jdbc.sql("insert into products(id,sku,category_id,name,description,pack_size,published,active) values(:id,:sku,:category,:name,:description,:pack,true,true)")
+                .param("id", product).param("sku", r.sku.trim().toUpperCase()).param("category", category)
+                .param("name", r.name.trim()).param("description", r.description == null ? null : r.description.trim())
+                .param("pack", r.packSize.trim()).update();
+        jdbc.sql("insert into branch_prices(branch_id,product_id,amount,currency,effective_from) select id,:product,:amount,:currency,now() from branches where active")
+                .param("product", product).param("amount", r.amount).param("currency", r.currency.toUpperCase()).update();
+        return product;
+    }
+
     @PutMapping("/prices/{productId}")
     @PreAuthorize("hasAnyRole('ADMIN','MAIN_MANAGER')")
     @ResponseStatus(HttpStatus.NO_CONTENT)
@@ -107,6 +130,10 @@ public class ManagementController {
     private String normalizePhone(String p) { String v=p.replaceAll("[\\s()-]",""); if(v.startsWith("0"))v="+263"+v.substring(1); if(!v.startsWith("+"))v="+"+v; return v; }
 
     record EmployeeRequest(@NotBlank String phoneNumber,@NotBlank String firstName,@NotBlank String lastName,@NotBlank @Size(min=10) String password,@NotBlank String role,UUID branchId) {}
+    record ProductRequest(@NotBlank @Size(max=80) String sku,@NotBlank @Size(max=200) String name,
+                          @NotBlank @Size(max=120) String category,@NotBlank @Size(max=80) String packSize,
+                          @Size(max=2000) String description,@NotNull @DecimalMin("0.00") BigDecimal amount,
+                          @NotBlank @Pattern(regexp="[A-Za-z]{3}") String currency) {}
     record PriceRequest(@NotNull @DecimalMin("0.00") BigDecimal amount,@NotBlank @Pattern(regexp="[A-Za-z]{3}") String currency) {}
     record NotificationRequest(@NotBlank String audience,UUID branchId,@NotBlank @Size(max=200) String title,@NotBlank @Size(max=5000) String body) {}
 }
