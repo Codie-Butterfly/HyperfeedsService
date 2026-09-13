@@ -98,26 +98,26 @@ public class ManagementController {
             select booking_batch.id booking_batch_id,booking_batch.name booking_batch_name,
                    booking_batch.start_date,booking_batch.end_date delivery_date,
                    branch.id branch_id,branch.name branch_name,
-                   config.chick_type,config.breed,
-                   coalesce(sum(booking.quantity) filter(where booking.status in ('ORDERED','CONFIRMED')),0) total_chicks,
-                   count(booking.id) filter(where booking.status in ('ORDERED','CONFIRMED')) order_count
+                   offering.chick_type,offering.breed,
+                   sum(booking.quantity) total_chicks,count(booking.id) order_count
             from chick_booking_batches booking_batch
-            cross join branches branch
-            cross join chick_breed_configs config
-            left join chick_batches offering
-              on offering.branch_id=branch.id
-             and offering.chick_type=config.chick_type
-             and lower(offering.breed)=lower(config.breed)
-            left join chick_bookings booking
-              on booking.batch_id=offering.id
-             and booking.booking_batch_id=booking_batch.id
+            join chick_bookings booking on booking.booking_batch_id=booking_batch.id
+            join chick_batches offering on offering.id=booking.batch_id
+            join branches branch on branch.id=offering.branch_id
             where booking_batch.status='OPEN'
               and current_date between booking_batch.start_date and booking_batch.end_date
-              and branch.active and config.available
+              and booking.status in ('ORDERED','CONFIRMED')
             group by booking_batch.id,booking_batch.name,booking_batch.start_date,booking_batch.end_date,
-                     branch.id,branch.name,config.chick_type,config.breed
-            order by branch.name,config.chick_type,config.breed
+                     branch.id,branch.name,offering.chick_type,offering.breed
+            order by branch.name,offering.chick_type,offering.breed
             """).query().listOfRows();
+    }
+
+    @GetMapping("/chicks/current-batch")
+    @PreAuthorize("hasAnyRole('ADMIN','MAIN_MANAGER')")
+    Map<String,Object> currentBookingBatch() {
+        return jdbc.sql("select id,name,start_date,end_date delivery_date from chick_booking_batches where status='OPEN' and current_date between start_date and end_date")
+                .query().listOfRows().stream().findFirst().orElseGet(Map::of);
     }
 
     @GetMapping("/chicks/breeds")
