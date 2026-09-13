@@ -98,18 +98,20 @@ public class ManagementController {
             select booking_batch.id booking_batch_id,booking_batch.name booking_batch_name,
                    booking_batch.start_date,booking_batch.end_date delivery_date,
                    branch.id branch_id,branch.name branch_name,
-                   offering.chick_type,offering.breed,
+                   coalesce(booking.chick_type,offering.chick_type) chick_type,
+                   coalesce(booking.breed,offering.breed) breed,
                    sum(booking.quantity) total_chicks,count(booking.id) order_count
             from chick_booking_batches booking_batch
             join chick_bookings booking on booking.booking_batch_id=booking_batch.id
-            join chick_batches offering on offering.id=booking.batch_id
-            join branches branch on branch.id=offering.branch_id
+            left join chick_batches offering on offering.id=booking.batch_id
+            join branches branch on branch.id=coalesce(booking.pickup_branch_id,offering.branch_id)
             where booking_batch.status='OPEN'
               and current_date between booking_batch.start_date and booking_batch.end_date
               and booking.status in ('ORDERED','CONFIRMED')
             group by booking_batch.id,booking_batch.name,booking_batch.start_date,booking_batch.end_date,
-                     branch.id,branch.name,offering.chick_type,offering.breed
-            order by branch.name,offering.chick_type,offering.breed
+                     branch.id,branch.name,coalesce(booking.chick_type,offering.chick_type),
+                     coalesce(booking.breed,offering.breed)
+            order by branch.name,chick_type,breed
             """).query().listOfRows();
     }
 
