@@ -72,6 +72,23 @@ public class ChickBookingController {
                 .list();
     }
 
+    @GetMapping("/current-batch")
+    public Map<String, Object> currentBookingBatch() {
+        return jdbc.sql("""
+                select id, name, start_date, end_date, end_date delivery_date
+                from chick_booking_batches
+                where status = 'OPEN'
+                  and current_date between start_date and end_date
+                order by updated_at desc
+                limit 1
+                """)
+                .query()
+                .listOfRows()
+                .stream()
+                .findFirst()
+                .orElseGet(Map::of);
+    }
+
     @PostMapping("/batches")
     @PreAuthorize("hasAnyRole('ADMIN','MAIN_MANAGER') or (hasRole('BRANCH_MANAGER') and @branchAccess.canAccess(authentication,#request.branchId))")
     @ResponseStatus(HttpStatus.CREATED)
