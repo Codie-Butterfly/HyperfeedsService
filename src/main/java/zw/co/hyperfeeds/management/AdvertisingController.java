@@ -32,7 +32,10 @@ public class AdvertisingController {
    if(!TEMPLATES.contains(r.templateType))throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Unsupported advert template");
    boolean main=a.getAuthorities().stream().anyMatch(x->x.getAuthority().equals("ROLE_ADMIN")||x.getAuthority().equals("ROLE_MAIN_MANAGER"));
    if(!main&&(r.branchId==null||jdbc.sql("select count(*) from employee_branches where user_id=:u and branch_id=:b").param("u",CurrentUser.id(a)).param("b",r.branchId).query(Integer.class).single()==0))throw new ResponseStatusException(HttpStatus.FORBIDDEN,"Branch access denied");
-   Instant start=r.startsAt==null?Instant.now():r.startsAt; Instant end=start.plus(Duration.ofHours(r.durationHours));UUID id=UUID.randomUUID();
+   Instant startInstant=r.startsAt==null?Instant.now():r.startsAt;
+   OffsetDateTime start=OffsetDateTime.ofInstant(startInstant,ZoneOffset.UTC);
+   OffsetDateTime end=start.plusHours(r.durationHours);
+   UUID id=UUID.randomUUID();
    jdbc.sql("insert into advertising_campaigns(id,template_type,branch_id,title,body,image_url,cta_label,cta_route,starts_at,ends_at,created_by) values(:id,:type,:branch,:title,:body,:image,:label,:route,:start,:end,:user)")
     .param("id",id).param("type",r.templateType).param("branch",r.branchId).param("title",r.title).param("body",r.body).param("image",r.imageUrl).param("label",r.ctaLabel).param("route",r.ctaRoute).param("start",start).param("end",end).param("user",CurrentUser.id(a)).update();return id;}
 
