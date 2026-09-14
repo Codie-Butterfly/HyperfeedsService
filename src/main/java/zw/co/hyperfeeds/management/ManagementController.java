@@ -179,7 +179,7 @@ public class ManagementController {
               and booking.deposit_payment_method='PAY_AT_BRANCH'
               and (not :restricted or exists(select 1 from employee_branches eb
                     where eb.user_id=:employee and eb.branch_id=branch.id))
-            for update
+            for update of booking
             """).param("id", id).param("restricted", restricted)
                 .param("employee", CurrentUser.id(authentication)).query().listOfRows().stream().findFirst()
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT,
