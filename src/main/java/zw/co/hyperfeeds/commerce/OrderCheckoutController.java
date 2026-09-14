@@ -133,7 +133,7 @@ class OrderCheckoutController {
         return result;
     }
 
-    @GetMapping("/orders")
+    @GetMapping("/orders/search")
     @PreAuthorize("hasAnyRole('ADMIN','MAIN_MANAGER','BRANCH_MANAGER','CUSTOMER_SERVICE')")
     List<Map<String,Object>> orders(Authentication authentication,
                                     @RequestParam(required = false) String status,
