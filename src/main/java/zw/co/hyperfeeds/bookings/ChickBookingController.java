@@ -166,6 +166,7 @@ public class ChickBookingController {
         OffsetDateTime cutoffAt = toOffsetDateTime(batch.get("cutoff_at"));
         UUID id = UUID.randomUUID();
         String reference = "CHK-" + id.toString().substring(0, 8).toUpperCase();
+        String bookingStatus = depositRequired ? "AWAITING_DEPOSIT" : "CONFIRMED";
 
         jdbc.sql("""
                 insert into chick_bookings(
@@ -174,7 +175,7 @@ public class ChickBookingController {
                     booking_batch_id, pickup_branch_id, chick_breed_config_id,
                     chick_type, breed, deposit_required, deposit_percentage, deposit_amount
                 ) values (
-                    :id, :reference, :user, null, :quantity, 'ORDERED',
+                    :id, :reference, :user, null, :quantity, :status,
                     :unitPrice, :total, :currency, :deliveryDate, :bookingBatch
                     ,:branch, :breedConfig, :type, :breed, :depositRequired, :depositPercentage, :depositAmount
                 )
@@ -183,6 +184,7 @@ public class ChickBookingController {
                 .param("reference", reference)
                 .param("user", userId)
                 .param("quantity", request.quantity)
+                .param("status", bookingStatus)
                 .param("unitPrice", unitPrice)
                 .param("total", total)
                 .param("currency", currency)
@@ -197,7 +199,7 @@ public class ChickBookingController {
                 .param("depositAmount", depositAmount)
                 .update();
 
-        return new BookingReceipt(id, reference, "ORDERED", breedConfigId, type,
+        return new BookingReceipt(id, reference, bookingStatus, breedConfigId, type,
                 request.breed.trim(), request.branchId, request.quantity,
                 unitPrice, total, currency, cutoffAt, deliveryDate,
                 depositRequired, depositPercentage, depositAmount);
@@ -213,6 +215,9 @@ public class ChickBookingController {
                        coalesce(booking.breed, batch.breed) breed,
                        booking.quantity, booking.status, booking.unit_price,
                        booking.total_amount, booking.currency,
+                       booking.deposit_required, booking.deposit_percentage,
+                       booking.deposit_amount, booking.deposit_payment_method,
+                       booking.deposit_paid_at,
                        coalesce(batch.cutoff_at, ((period.end_date + 1)::timestamp at time zone 'Africa/Harare')) cutoff_at,
                        coalesce(batch.delivery_date, period.end_date) delivery_date,
                        booking.created_at
@@ -238,7 +243,7 @@ public class ChickBookingController {
                 where booking.id = :id
                   and booking.user_id = :user
                   and booking.booking_batch_id = period.id
-                  and booking.status = 'ORDERED'
+                  and booking.status in ('ORDERED','AWAITING_DEPOSIT','AWAITING_DEPOSIT_AT_BRANCH','DEPOSIT_PAYMENT_FAILED')
                   and current_date <= period.end_date
                 """)
                 .param("id", id)
@@ -375,7 +380,9 @@ public class ChickBookingController {
             UUID branchId, String chickType, String breed, int quantity,
             String status, BigDecimal unitPrice, BigDecimal totalAmount,
             String currency, OffsetDateTime cutoffAt, LocalDate deliveryDate,
-            Instant createdAt) {}
+            boolean depositRequired, BigDecimal depositPercentage,
+            BigDecimal depositAmount, String depositPaymentMethod,
+            OffsetDateTime depositPaidAt, Instant createdAt) {}
 
     public record BatchSummary(UUID id, UUID branchId, String chickType,
             String breed, OffsetDateTime cutoffAt, LocalDate deliveryDate,

@@ -37,7 +37,7 @@ class PaynowCallbackController {
             return "OK";
         }
 
-        var payment = jdbc.sql("select p.id,p.poll_url from payments p join orders o on o.id=p.order_id where o.reference=:r and p.status='SENT_TO_SUBSCRIBER'")
+        var payment = jdbc.sql("select p.id,p.poll_url from payments p left join orders o on o.id=p.order_id left join chick_bookings cb on cb.id=p.chick_booking_id where coalesce(o.reference,cb.reference)=:r and p.status='SENT_TO_SUBSCRIBER'")
                 .param("r", reference)
                 .query()
                 .listOfRows()

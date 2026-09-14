@@ -32,7 +32,7 @@ class PaymentReconciliationJob {
 
     @Scheduled(fixedDelayString = "${hyperfeeds.paynow.poll-delay}", initialDelayString = "10s")
     void poll() {
-        var pending = jdbc.sql("select p.id,p.order_id,o.reference,p.provider_reference,p.poll_url,p.created_at from payments p join orders o on o.id=p.order_id where p.status='SENT_TO_SUBSCRIBER' and p.poll_url is not null order by p.created_at limit 100")
+        var pending = jdbc.sql("select p.id,p.order_id,p.chick_booking_id,coalesce(o.reference,cb.reference) reference,p.provider_reference,p.poll_url,p.created_at from payments p left join orders o on o.id=p.order_id left join chick_bookings cb on cb.id=p.chick_booking_id where p.status='SENT_TO_SUBSCRIBER' and p.poll_url is not null order by p.created_at limit 100")
                 .query().listOfRows();
         if (pending.isEmpty()) {
             log.debug("PAYNOW_RECONCILIATION_IDLE pendingCount=0");

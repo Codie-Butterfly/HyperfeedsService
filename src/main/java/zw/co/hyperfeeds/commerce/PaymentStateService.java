@@ -25,7 +25,15 @@ class PaymentStateService {
         log.info("PAYMENT_STATE_UPDATE_START paymentId={} paid={} providerStatus={} providerReference={} failure={}",
                 paymentId, paid, providerStatus, providerReference, failure);
 
-        Map<String, Object> payment = jdbc.sql("select p.id,p.order_id,p.status,o.branch_id,o.user_id,o.reference from payments p join orders o on o.id=p.order_id where p.id=:id for update")
+        Map<String, Object> payment = jdbc.sql("""
+                select p.id,p.order_id,p.chick_booking_id,p.status,
+                       coalesce(o.user_id,cb.user_id) user_id,
+                       coalesce(o.reference,cb.reference) reference,
+                       o.branch_id
+                from payments p left join orders o on o.id=p.order_id
+                left join chick_bookings cb on cb.id=p.chick_booking_id
+                where p.id=:id
+                """)
                 .param("id", paymentId).query().singleRow();
         String currentStatus = (String) payment.get("status");
         String orderReference = (String) payment.get("reference");
@@ -45,6 +53,22 @@ class PaymentStateService {
         if (!paid && failure == null) {
             log.debug("PAYMENT_REMAINS_PENDING paymentId={} orderReference={} providerStatus={}",
                     paymentId, orderReference, providerStatus);
+            return;
+        }
+
+        UUID chickBookingId = (UUID) payment.get("chick_booking_id");
+        if (chickBookingId != null) {
+            String bookingStatus = paid ? "CONFIRMED" : "DEPOSIT_PAYMENT_FAILED";
+            jdbc.sql("update chick_bookings set status=:status,deposit_paid_at=case when :paid then now() else deposit_paid_at end,updated_at=now() where id=:id")
+                    .param("status", bookingStatus).param("paid", paid).param("id", chickBookingId).update();
+            String title = paid ? "Chick order guaranteed" : "Chick deposit unsuccessful";
+            String body = paid
+                    ? "Your deposit for chick order " + orderReference + " has been paid. Your order is now guaranteed."
+                    : "The deposit for chick order " + orderReference + " was not completed.";
+            jdbc.sql("insert into notifications(user_id,type,title,body,data) values(:u,:type,:title,:body,jsonb_build_object('chickBookingId',:booking))")
+                    .param("u", payment.get("user_id"))
+                    .param("type", paid ? "CHICK_DEPOSIT_PAID" : "CHICK_DEPOSIT_FAILED")
+                    .param("title", title).param("body", body).param("booking", chickBookingId.toString()).update();
             return;
         }
 
