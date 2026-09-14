@@ -132,7 +132,12 @@ public class ManagementController {
     @PreAuthorize("hasAnyRole('ADMIN','BRANCH_MANAGER','CUSTOMER_SERVICE')")
     List<Map<String,Object>> chickOrders(Authentication authentication,
                                          @RequestParam(required = false) String status,
-                                         @RequestParam(required = false) String customerPhone) {
+                                         @RequestParam(required = false) String customerPhone,
+                                         @RequestParam(required = false) LocalDate startDate,
+                                         @RequestParam(required = false) LocalDate endDate,
+                                         @RequestParam(required = false) UUID batchId) {
+        if (startDate != null && endDate != null && endDate.isBefore(startDate))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "End date must be on or after start date");
         boolean restrictToAssignedBranch = authentication.getAuthorities().stream()
                 .anyMatch(a -> a.getAuthority().equals("ROLE_BRANCH_MANAGER"));
         return jdbc.sql("""
@@ -148,10 +153,11 @@ public class ManagementController {
             left join chick_batches offering on offering.id=booking.batch_id
             join branches branch on branch.id=coalesce(booking.pickup_branch_id,offering.branch_id)
             join users customer on customer.id=booking.user_id
-            join chick_booking_batches period on period.id=booking.booking_batch_id
-            where period.status='OPEN' and current_date between period.start_date and period.end_date
-              and booking.status <> 'CANCELLED'
-              and (:status='' or booking.status=:status)
+            where (cast(:startDate as date) is null or booking.created_at >= cast(:startDate as date))
+              and (cast(:endDate as date) is null or booking.created_at < cast(:endDate as date) + interval '1 day')
+              and (cast(:batchId as uuid) is null or booking.booking_batch_id=cast(:batchId as uuid))
+              and ((:status='' and booking.status not in ('CANCELLED','COLLECTED'))
+                   or (:status<>'' and booking.status=:status))
               and (:phone='' or customer.phone_number like concat('%',:phone,'%'))
               and (not :restricted or exists(select 1 from employee_branches eb
                     where eb.user_id=:user and eb.branch_id=branch.id))
@@ -159,7 +165,16 @@ public class ManagementController {
             """).param("restricted", restrictToAssignedBranch)
                 .param("status", status == null ? "" : status.trim().toUpperCase())
                 .param("phone", customerPhone == null ? "" : customerPhone.replaceAll("\\s+", ""))
+                .param("startDate", startDate).param("endDate", endDate)
+                .param("batchId", batchId)
                 .param("user", CurrentUser.id(authentication)).query().listOfRows();
+    }
+
+    @GetMapping("/chicks/order-batches")
+    @PreAuthorize("hasAnyRole('ADMIN','MAIN_MANAGER','BRANCH_MANAGER','CUSTOMER_SERVICE')")
+    List<Map<String,Object>> orderBatches() {
+        return jdbc.sql("select id,name,end_date,status from chick_booking_batches order by end_date desc")
+                .query().listOfRows();
     }
 
     @PatchMapping("/chicks/orders/{id}/paid-at-branch")
