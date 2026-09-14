@@ -43,6 +43,22 @@ public class ManagementController {
         return id;
     }
 
+    @PutMapping("/employees/password")
+    @PreAuthorize("hasAnyRole('ADMIN','MAIN_MANAGER')")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Transactional
+    void resetEmployeePassword(@Valid @RequestBody EmployeePasswordRequest r) {
+        int changed = jdbc.sql("""
+                update users set password_hash=:password,updated_at=now()
+                where phone_number=:phone and employee and active
+                """)
+                .param("password", passwords.encode(r.password))
+                .param("phone", normalizePhone(r.phoneNumber))
+                .update();
+        if (changed == 0) throw new ResponseStatusException(HttpStatus.NOT_FOUND,
+                "Active employee account not found");
+    }
+
     @PostMapping("/products")
     @PreAuthorize("hasAnyRole('ADMIN','MAIN_MANAGER')")
     @ResponseStatus(HttpStatus.CREATED)
@@ -290,6 +306,8 @@ public class ManagementController {
     private String normalizePhone(String p) { String v=p.replaceAll("[\\s()-]",""); if(v.startsWith("0"))v="+263"+v.substring(1); if(!v.startsWith("+"))v="+"+v; return v; }
 
     record EmployeeRequest(@NotBlank String phoneNumber,@NotBlank String firstName,@NotBlank String lastName,@NotBlank @Size(min=10) String password,@NotBlank String role,UUID branchId) {}
+    record EmployeePasswordRequest(@NotBlank String phoneNumber,
+                                   @NotBlank @Size(min=10) String password) {}
     record ProductRequest(@NotBlank @Size(max=80) String sku,@NotBlank @Size(max=200) String name,
                           @NotBlank @Size(max=120) String category,@NotBlank @Size(max=80) String packSize,
                           @Size(max=2000) String description,@NotNull @DecimalMin("0.00") BigDecimal amount,
