@@ -95,23 +95,25 @@ public class ManagementController {
     @PreAuthorize("hasAnyRole('ADMIN','MAIN_MANAGER')")
     List<Map<String,Object>> chickDemand() {
         return jdbc.sql("""
-            select booking_batch.id booking_batch_id,booking_batch.name booking_batch_name,
+            select booking.id,booking.reference,booking.created_at,booking.status,
+                   booking_batch.id booking_batch_id,booking_batch.name booking_batch_name,
                    booking_batch.start_date,booking_batch.end_date delivery_date,
                    branch.id branch_id,branch.name branch_name,
                    coalesce(booking.chick_type,offering.chick_type) chick_type,
                    coalesce(booking.breed,offering.breed) breed,
-                   sum(booking.quantity) total_chicks,count(booking.id) order_count
+                   booking.quantity,booking.total_amount,trim(booking.currency) currency,
+                   booking.deposit_required,booking.deposit_amount,
+                   booking.deposit_payment_method,booking.deposit_paid_at,
+                   customer.phone_number customer_phone
             from chick_booking_batches booking_batch
             join chick_bookings booking on booking.booking_batch_id=booking_batch.id
             left join chick_batches offering on offering.id=booking.batch_id
             join branches branch on branch.id=coalesce(booking.pickup_branch_id,offering.branch_id)
+            join users customer on customer.id=booking.user_id
             where booking_batch.status='OPEN'
               and current_date between booking_batch.start_date and booking_batch.end_date
-              and booking.status in ('ORDERED','CONFIRMED')
-            group by booking_batch.id,booking_batch.name,booking_batch.start_date,booking_batch.end_date,
-                     branch.id,branch.name,coalesce(booking.chick_type,offering.chick_type),
-                     coalesce(booking.breed,offering.breed)
-            order by branch.name,chick_type,breed
+              and booking.status <> 'CANCELLED'
+            order by booking.created_at desc
             """).query().listOfRows();
     }
 
