@@ -10,6 +10,8 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -108,22 +110,83 @@ class OrderCheckoutController {
     }
 
     @GetMapping("/orders/lookup")
-    @PreAuthorize("hasAnyRole('ADMIN','MAIN_MANAGER','CUSTOMER_SERVICE')")
-    Map<String, Object> lookup(@RequestParam String reference) {
+    @PreAuthorize("hasAnyRole('ADMIN','MAIN_MANAGER','BRANCH_MANAGER','CUSTOMER_SERVICE')")
+    Map<String, Object> lookup(Authentication authentication, @RequestParam String reference) {
+        boolean restricted = authentication.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_BRANCH_MANAGER"));
         Map<String, Object> order = jdbc.sql("""
                 select o.id,o.reference,o.status,o.total,o.currency,o.payment_method,
-                       o.fulfilment_method,o.expires_at,o.created_at,b.name branch_name,
+                       o.fulfilment_method,o.expires_at,o.created_at,o.collected_at,b.name branch_name,
                        u.phone_number,coalesce(p.status,case when o.status='PAID' then 'PAID' else 'NOT_PAID' end) payment_status
                 from orders o join branches b on b.id=o.branch_id join users u on u.id=o.user_id
                 left join lateral(select status from payments where order_id=o.id order by created_at desc limit 1)p on true
                 where upper(o.reference)=upper(:reference)
-                """).param("reference", reference.trim()).query().listOfRows().stream().findFirst()
+                  and (not :restricted or exists(select 1 from employee_branches eb
+                        where eb.user_id=:employee and eb.branch_id=o.branch_id))
+                """).param("reference", reference.trim()).param("restricted", restricted)
+                .param("employee", CurrentUser.id(authentication)).query().listOfRows().stream().findFirst()
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Order number not found"));
         List<Map<String, Object>> items = jdbc.sql("select product_name,quantity,unit_price,line_total from order_items where order_id=:id order by product_name")
                 .param("id", order.get("id")).query().listOfRows();
         Map<String, Object> result = new LinkedHashMap<>(order);
         result.put("items", items);
         return result;
+    }
+
+    @PatchMapping("/orders/{id}/paid-at-branch")
+    @PreAuthorize("hasAnyRole('ADMIN','BRANCH_MANAGER','CUSTOMER_SERVICE')")
+    @Transactional
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    void recordBranchPayment(Authentication authentication, @PathVariable UUID id) {
+        Map<String,Object> order = actionableOrder(authentication, id,
+                "AWAITING_PAYMENT_AT_SHOP", "PAY_AT_SHOP");
+        jdbc.sql("update orders set status='PAID',updated_at=now() where id=:id")
+                .param("id", id).update();
+        jdbc.sql("insert into payments(order_id,provider,status,amount,currency) values(:id,'BRANCH','PAID',:amount,:currency)")
+                .param("id", id).param("amount", order.get("total")).param("currency", order.get("currency")).update();
+        jdbc.sql("update branch_inventory bi set on_hand=on_hand-oi.quantity,reserved=reserved-oi.quantity,version=version+1,updated_at=now() from order_items oi where oi.order_id=:id and bi.branch_id=:branch and bi.product_id=oi.product_id")
+                .param("id", id).param("branch", order.get("branch_id")).update();
+        notifyOrder(order, "ORDER_PAID", "Payment received",
+                "Payment for order " + order.get("reference") + " was received at the branch.");
+    }
+
+    @PatchMapping("/orders/{id}/collected")
+    @PreAuthorize("hasAnyRole('ADMIN','BRANCH_MANAGER','CUSTOMER_SERVICE')")
+    @Transactional
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    void markCollected(Authentication authentication, @PathVariable UUID id) {
+        Map<String,Object> order = actionableOrder(authentication, id, "PAID", null);
+        if (!"PICKUP".equals(order.get("fulfilment_method")))
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Only pickup orders can be marked as collected");
+        jdbc.sql("update orders set status='COLLECTED',collected_at=now(),updated_at=now() where id=:id")
+                .param("id", id).update();
+        notifyOrder(order, "ORDER_COLLECTED", "Order collected",
+                "Order " + order.get("reference") + " has been marked as collected.");
+    }
+
+    private Map<String,Object> actionableOrder(Authentication authentication, UUID id,
+                                                String status, String paymentMethod) {
+        boolean restricted = authentication.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_BRANCH_MANAGER"));
+        return jdbc.sql("""
+                select o.id,o.reference,o.user_id,o.branch_id,o.total,trim(o.currency) currency,
+                       o.fulfilment_method from orders o
+                where o.id=:id and o.status=:status
+                  and (:payment='' or o.payment_method=:payment)
+                  and (not :restricted or exists(select 1 from employee_branches eb
+                        where eb.user_id=:employee and eb.branch_id=o.branch_id))
+                for update
+                """).param("id", id).param("status", status).param("payment", paymentMethod == null ? "" : paymentMethod)
+                .param("restricted", restricted).param("employee", CurrentUser.id(authentication))
+                .query().listOfRows().stream().findFirst()
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT,
+                        "Order is not available for this action"));
+    }
+
+    private void notifyOrder(Map<String,Object> order, String type, String title, String body) {
+        jdbc.sql("insert into notifications(user_id,type,title,body,data) values(:user,:type,:title,:body,jsonb_build_object('orderId',:id))")
+                .param("user", order.get("user_id")).param("type", type).param("title", title)
+                .param("body", body).param("id", order.get("id").toString()).update();
     }
 
     private int unpaidExpiryHours() {

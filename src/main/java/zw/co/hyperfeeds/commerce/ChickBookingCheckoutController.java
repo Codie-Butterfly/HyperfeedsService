@@ -70,8 +70,10 @@ class ChickBookingCheckoutController {
     }
 
     @GetMapping("/lookup")
-    @PreAuthorize("hasAnyRole('ADMIN','MAIN_MANAGER','CUSTOMER_SERVICE')")
-    Map<String, Object> lookup(@RequestParam String reference) {
+    @PreAuthorize("hasAnyRole('ADMIN','MAIN_MANAGER','BRANCH_MANAGER','CUSTOMER_SERVICE')")
+    Map<String, Object> lookup(Authentication authentication, @RequestParam String reference) {
+        boolean restricted = authentication.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_BRANCH_MANAGER"));
         Map<String, Object> booking = jdbc.sql("""
                 select cb.id,cb.reference,cb.status,cb.quantity,cb.chick_type,cb.breed,
                        cb.unit_price,cb.total_amount,cb.currency,cb.delivery_date_snapshot delivery_date,
@@ -85,7 +87,10 @@ class ChickBookingCheckoutController {
                 join users u on u.id=cb.user_id
                 left join lateral(select status from payments where chick_booking_id=cb.id order by created_at desc limit 1)p on true
                 where upper(cb.reference)=upper(:reference)
-                """).param("reference", reference.trim()).query().listOfRows().stream().findFirst()
+                  and (not :restricted or exists(select 1 from employee_branches eb
+                        where eb.user_id=:employee and eb.branch_id=coalesce(cb.pickup_branch_id,b.id)))
+                """).param("reference", reference.trim()).param("restricted", restricted)
+                .param("employee", CurrentUser.id(authentication)).query().listOfRows().stream().findFirst()
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Chick order number not found"));
         return new LinkedHashMap<>(booking);
     }
