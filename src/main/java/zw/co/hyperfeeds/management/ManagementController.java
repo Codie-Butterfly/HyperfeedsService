@@ -95,26 +95,48 @@ public class ManagementController {
     @PreAuthorize("hasAnyRole('ADMIN','MAIN_MANAGER')")
     List<Map<String,Object>> chickDemand() {
         return jdbc.sql("""
-            select booking.id,booking.reference,booking.created_at,booking.status,
-                   booking_batch.id booking_batch_id,booking_batch.name booking_batch_name,
-                   booking_batch.start_date,booking_batch.end_date delivery_date,
-                   branch.id branch_id,branch.name branch_name,
+            select booking_batch.id booking_batch_id,branch.id branch_id,branch.name branch_name,
                    coalesce(booking.chick_type,offering.chick_type) chick_type,
                    coalesce(booking.breed,offering.breed) breed,
-                   booking.quantity,booking.total_amount,trim(booking.currency) currency,
-                   booking.deposit_required,booking.deposit_amount,
-                   booking.deposit_payment_method,booking.deposit_paid_at,
-                   customer.phone_number customer_phone
+                   sum(booking.quantity) total_chicks,count(booking.id) order_count
             from chick_booking_batches booking_batch
             join chick_bookings booking on booking.booking_batch_id=booking_batch.id
             left join chick_batches offering on offering.id=booking.batch_id
             join branches branch on branch.id=coalesce(booking.pickup_branch_id,offering.branch_id)
-            join users customer on customer.id=booking.user_id
             where booking_batch.status='OPEN'
               and current_date between booking_batch.start_date and booking_batch.end_date
-              and booking.status <> 'CANCELLED'
-            order by booking.created_at desc
+              and booking.status='CONFIRMED'
+            group by booking_batch.id,branch.id,branch.name,
+                     coalesce(booking.chick_type,offering.chick_type),coalesce(booking.breed,offering.breed)
+            order by branch.name,breed
             """).query().listOfRows();
+    }
+
+    @GetMapping("/chicks/orders")
+    @PreAuthorize("hasAnyRole('ADMIN','MAIN_MANAGER','BRANCH_MANAGER','CUSTOMER_SERVICE')")
+    List<Map<String,Object>> chickOrders(Authentication authentication) {
+        boolean restrictToAssignedBranch = authentication.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_BRANCH_MANAGER"));
+        return jdbc.sql("""
+            select booking.id,booking.reference,booking.created_at,booking.status,
+                   branch.id branch_id,concat(customer.first_name,' ',customer.last_name) customer_name,
+                   customer.phone_number customer_phone,
+                   branch.name branch_name,coalesce(booking.chick_type,offering.chick_type) chick_type,
+                   coalesce(booking.breed,offering.breed) breed,booking.quantity,
+                   booking.total_amount,trim(booking.currency) currency,booking.delivery_date_snapshot delivery_date,
+                   booking.deposit_required,booking.deposit_amount,booking.deposit_payment_method,booking.deposit_paid_at
+            from chick_bookings booking
+            left join chick_batches offering on offering.id=booking.batch_id
+            join branches branch on branch.id=coalesce(booking.pickup_branch_id,offering.branch_id)
+            join users customer on customer.id=booking.user_id
+            join chick_booking_batches period on period.id=booking.booking_batch_id
+            where period.status='OPEN' and current_date between period.start_date and period.end_date
+              and booking.status <> 'CANCELLED'
+              and (not :restricted or exists(select 1 from employee_branches eb
+                    where eb.user_id=:user and eb.branch_id=branch.id))
+            order by booking.created_at desc
+            """).param("restricted", restrictToAssignedBranch)
+                .param("user", CurrentUser.id(authentication)).query().listOfRows();
     }
 
     @GetMapping("/chicks/current-batch")
