@@ -130,7 +130,9 @@ public class ManagementController {
 
     @GetMapping("/chicks/orders")
     @PreAuthorize("hasAnyRole('ADMIN','BRANCH_MANAGER','CUSTOMER_SERVICE')")
-    List<Map<String,Object>> chickOrders(Authentication authentication) {
+    List<Map<String,Object>> chickOrders(Authentication authentication,
+                                         @RequestParam(required = false) String status,
+                                         @RequestParam(required = false) String customerPhone) {
         boolean restrictToAssignedBranch = authentication.getAuthorities().stream()
                 .anyMatch(a -> a.getAuthority().equals("ROLE_BRANCH_MANAGER"));
         return jdbc.sql("""
@@ -149,11 +151,48 @@ public class ManagementController {
             join chick_booking_batches period on period.id=booking.booking_batch_id
             where period.status='OPEN' and current_date between period.start_date and period.end_date
               and booking.status <> 'CANCELLED'
+              and (:status='' or booking.status=:status)
+              and (:phone='' or customer.phone_number like concat('%',:phone,'%'))
               and (not :restricted or exists(select 1 from employee_branches eb
                     where eb.user_id=:user and eb.branch_id=branch.id))
             order by booking.created_at desc
             """).param("restricted", restrictToAssignedBranch)
+                .param("status", status == null ? "" : status.trim().toUpperCase())
+                .param("phone", customerPhone == null ? "" : customerPhone.replaceAll("\\s+", ""))
                 .param("user", CurrentUser.id(authentication)).query().listOfRows();
+    }
+
+    @PatchMapping("/chicks/orders/{id}/paid-at-branch")
+    @PreAuthorize("hasAnyRole('ADMIN','BRANCH_MANAGER','CUSTOMER_SERVICE')")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Transactional
+    void markChickOrderPaid(Authentication authentication, @PathVariable UUID id) {
+        boolean restricted = authentication.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_BRANCH_MANAGER"));
+        Map<String,Object> order = jdbc.sql("""
+            select booking.id,booking.user_id,booking.reference,booking.deposit_amount,
+                   trim(booking.currency) currency
+            from chick_bookings booking
+            left join chick_batches offering on offering.id=booking.batch_id
+            join branches branch on branch.id=coalesce(booking.pickup_branch_id,offering.branch_id)
+            where booking.id=:id and booking.status='AWAITING_DEPOSIT_AT_BRANCH'
+              and booking.deposit_payment_method='PAY_AT_BRANCH'
+              and (not :restricted or exists(select 1 from employee_branches eb
+                    where eb.user_id=:employee and eb.branch_id=branch.id))
+            for update
+            """).param("id", id).param("restricted", restricted)
+                .param("employee", CurrentUser.id(authentication)).query().listOfRows().stream().findFirst()
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT,
+                        "Only an unpaid chick deposit for your branch can be marked as paid"));
+        jdbc.sql("update chick_bookings set status='CONFIRMED',deposit_paid_at=now(),updated_at=now() where id=:id")
+                .param("id", id).update();
+        jdbc.sql("insert into payments(chick_booking_id,provider,status,amount,currency) values(:id,'BRANCH','PAID',:amount,:currency)")
+                .param("id", id).param("amount", order.get("deposit_amount"))
+                .param("currency", order.get("currency")).update();
+        jdbc.sql("insert into notifications(user_id,type,title,body,data) values(:user,'CHICK_DEPOSIT_PAID','Deposit received',:body,jsonb_build_object('chickBookingId',:id))")
+                .param("user", order.get("user_id"))
+                .param("body", "Deposit for chick order " + order.get("reference") + " was received at the branch.")
+                .param("id", id.toString()).update();
     }
 
     @PatchMapping("/chicks/orders/{id}/collected")

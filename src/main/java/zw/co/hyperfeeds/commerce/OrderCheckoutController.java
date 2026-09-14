@@ -133,6 +133,30 @@ class OrderCheckoutController {
         return result;
     }
 
+    @GetMapping("/orders")
+    @PreAuthorize("hasAnyRole('ADMIN','MAIN_MANAGER','BRANCH_MANAGER','CUSTOMER_SERVICE')")
+    List<Map<String,Object>> orders(Authentication authentication,
+                                    @RequestParam(required = false) String status,
+                                    @RequestParam(required = false) String customerPhone) {
+        boolean restricted = authentication.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_BRANCH_MANAGER"));
+        return jdbc.sql("""
+                select o.id,o.reference,o.status,o.total,trim(o.currency) currency,
+                       o.payment_method,o.fulfilment_method,o.created_at,o.collected_at,
+                       b.name branch_name,u.phone_number,
+                       concat(u.first_name,' ',u.last_name) customer_name
+                from orders o join branches b on b.id=o.branch_id join users u on u.id=o.user_id
+                where (:status='' or o.status=:status)
+                  and (:phone='' or u.phone_number like concat('%',:phone,'%'))
+                  and (not :restricted or exists(select 1 from employee_branches eb
+                        where eb.user_id=:employee and eb.branch_id=o.branch_id))
+                order by o.created_at desc limit 100
+                """).param("status", status == null ? "" : status.trim().toUpperCase())
+                .param("phone", customerPhone == null ? "" : customerPhone.replaceAll("\\s+", ""))
+                .param("restricted", restricted).param("employee", CurrentUser.id(authentication))
+                .query().listOfRows();
+    }
+
     @PatchMapping("/orders/{id}/paid-at-branch")
     @PreAuthorize("hasAnyRole('ADMIN','BRANCH_MANAGER','CUSTOMER_SERVICE')")
     @Transactional
