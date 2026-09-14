@@ -113,7 +113,7 @@ public class ManagementController {
     }
 
     @GetMapping("/chicks/orders")
-    @PreAuthorize("hasAnyRole('ADMIN','MAIN_MANAGER','BRANCH_MANAGER','CUSTOMER_SERVICE')")
+    @PreAuthorize("hasAnyRole('ADMIN','BRANCH_MANAGER','CUSTOMER_SERVICE')")
     List<Map<String,Object>> chickOrders(Authentication authentication) {
         boolean restrictToAssignedBranch = authentication.getAuthorities().stream()
                 .anyMatch(a -> a.getAuthority().equals("ROLE_BRANCH_MANAGER"));
@@ -125,6 +125,7 @@ public class ManagementController {
                    coalesce(booking.breed,offering.breed) breed,booking.quantity,
                    booking.total_amount,trim(booking.currency) currency,booking.delivery_date_snapshot delivery_date,
                    booking.deposit_required,booking.deposit_amount,booking.deposit_payment_method,booking.deposit_paid_at
+                   ,booking.collected_at
             from chick_bookings booking
             left join chick_batches offering on offering.id=booking.batch_id
             join branches branch on branch.id=coalesce(booking.pickup_branch_id,offering.branch_id)
@@ -137,6 +138,33 @@ public class ManagementController {
             order by booking.created_at desc
             """).param("restricted", restrictToAssignedBranch)
                 .param("user", CurrentUser.id(authentication)).query().listOfRows();
+    }
+
+    @PatchMapping("/chicks/orders/{id}/collected")
+    @PreAuthorize("hasAnyRole('ADMIN','BRANCH_MANAGER','CUSTOMER_SERVICE')")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Transactional
+    void markChickOrderCollected(Authentication authentication, @PathVariable UUID id) {
+        boolean restrictToAssignedBranch = authentication.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_BRANCH_MANAGER"));
+        Map<String,Object> order = jdbc.sql("""
+            select booking.user_id,booking.reference
+            from chick_bookings booking
+            left join chick_batches offering on offering.id=booking.batch_id
+            join branches branch on branch.id=coalesce(booking.pickup_branch_id,offering.branch_id)
+            where booking.id=:id and booking.status='CONFIRMED' and booking.collected_at is null
+              and (not :restricted or exists(select 1 from employee_branches eb
+                    where eb.user_id=:employee and eb.branch_id=branch.id))
+            """).param("id", id).param("restricted", restrictToAssignedBranch)
+                .param("employee", CurrentUser.id(authentication)).query().listOfRows().stream().findFirst()
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT,
+                        "Only a confirmed, uncollected chick order for your branch can be collected"));
+        jdbc.sql("update chick_bookings set status='COLLECTED',collected_at=now(),updated_at=now() where id=:id")
+                .param("id", id).update();
+        jdbc.sql("insert into notifications(user_id,type,title,body,data) values(:user,'CHICK_ORDER_COLLECTED','Chick order collected',:body,jsonb_build_object('chickBookingId',:id))")
+                .param("user", order.get("user_id"))
+                .param("body", "Chick order " + order.get("reference") + " has been marked as collected.")
+                .param("id", id.toString()).update();
     }
 
     @GetMapping("/chicks/current-batch")

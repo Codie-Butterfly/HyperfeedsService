@@ -77,6 +77,7 @@ class ChickBookingCheckoutController {
                        cb.unit_price,cb.total_amount,cb.currency,cb.delivery_date_snapshot delivery_date,
                        cb.deposit_required,cb.deposit_percentage,cb.deposit_amount,
                        cb.deposit_payment_method,cb.deposit_paid_at,
+                       cb.collected_at,
                        (cb.total_amount-case when cb.deposit_paid_at is null then 0 else cb.deposit_amount end) amount_owed,
                        b.name branch_name,u.phone_number,
                        coalesce(p.status,case when cb.deposit_paid_at is not null then 'PAID' else 'NOT_PAID' end) deposit_status
