@@ -116,9 +116,10 @@ class OrderCheckoutController {
                 .anyMatch(a -> a.getAuthority().equals("ROLE_BRANCH_MANAGER"));
         Map<String, Object> order = jdbc.sql("""
                 select o.id,o.reference,o.status,o.total,o.currency,o.payment_method,
-                       o.fulfilment_method,o.expires_at,o.created_at,o.collected_at,b.name branch_name,
-                       u.phone_number,coalesce(p.status,case when o.status='PAID' then 'PAID' else 'NOT_PAID' end) payment_status
-                from orders o join branches b on b.id=o.branch_id join users u on u.id=o.user_id
+                       o.fulfilment_method,o.expires_at,o.created_at,o.collected_at,o.sales_channel,b.name branch_name,
+                       coalesce(o.customer_name,concat(u.first_name,' ',u.last_name)) customer_name,
+                       coalesce(o.customer_phone,u.phone_number) phone_number,coalesce(p.status,case when o.status='PAID' then 'PAID' else 'NOT_PAID' end) payment_status
+                from orders o join branches b on b.id=o.branch_id left join users u on u.id=o.user_id
                 left join lateral(select status from payments where order_id=o.id order by created_at desc limit 1)p on true
                 where upper(o.reference)=upper(:reference)
                   and (not :restricted or exists(select 1 from employee_branches eb
@@ -143,11 +144,11 @@ class OrderCheckoutController {
         return jdbc.sql("""
                 select o.id,o.reference,o.status,o.total,trim(o.currency) currency,
                        o.payment_method,o.fulfilment_method,o.created_at,o.collected_at,
-                       b.name branch_name,u.phone_number,
-                       concat(u.first_name,' ',u.last_name) customer_name
-                from orders o join branches b on b.id=o.branch_id join users u on u.id=o.user_id
+                       b.name branch_name,o.sales_channel,coalesce(o.customer_phone,u.phone_number) phone_number,
+                       coalesce(o.customer_name,concat(u.first_name,' ',u.last_name)) customer_name
+                from orders o join branches b on b.id=o.branch_id left join users u on u.id=o.user_id
                 where (:status='' or o.status=:status)
-                  and (:phone='' or u.phone_number like concat('%',:phone,'%'))
+                  and (:phone='' or coalesce(o.customer_phone,u.phone_number) like concat('%',:phone,'%'))
                   and (not :restricted or exists(select 1 from employee_branches eb
                         where eb.user_id=:employee and eb.branch_id=o.branch_id))
                 order by o.created_at desc limit 100
@@ -208,6 +209,7 @@ class OrderCheckoutController {
     }
 
     private void notifyOrder(Map<String,Object> order, String type, String title, String body) {
+        if (order.get("user_id") == null) return;
         jdbc.sql("insert into notifications(user_id,type,title,body,data) values(:user,:type,:title,:body,jsonb_build_object('orderId',:id))")
                 .param("user", order.get("user_id")).param("type", type).param("title", title)
                 .param("body", body).param("id", order.get("id").toString()).update();
