@@ -111,6 +111,22 @@ public class WalkInSaleController {
                     "unitPrice", price, "lineTotal", lineTotal));
             total = total.add(lineTotal);
         }
+        BigDecimal subtotal=total;
+        String discountType=request.discountType()==null ? "NONE" : request.discountType();
+        BigDecimal discountValue=request.discountValue()==null ? BigDecimal.ZERO : request.discountValue();
+        if (!Set.of("NONE","PERCENTAGE","FIXED").contains(discountType) || discountValue.signum()<0)
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid discount");
+        if (discountType.equals("NONE") && discountValue.signum()!=0)
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Enable the discount before entering a value");
+        if (!discountType.equals("NONE") && (discountValue.signum()<=0 || clean(request.discountReason()).isEmpty()))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Enter a positive discount and a reason");
+        if (discountType.equals("PERCENTAGE") && discountValue.compareTo(new BigDecimal("100"))>0)
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Discount cannot exceed 100 percent");
+        BigDecimal discountAmount=discountType.equals("PERCENTAGE")
+            ? subtotal.multiply(discountValue).divide(new BigDecimal("100"),2,RoundingMode.HALF_UP)
+            : discountType.equals("FIXED") ? discountValue : BigDecimal.ZERO;
+        if(discountAmount.compareTo(subtotal)>0) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Discount cannot exceed the sale subtotal");
+        total=subtotal.subtract(discountAmount);
         if (!request.currency().equals(currency) || total.compareTo(request.amountPaid()) != 0)
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "Payment must match the current branch total and currency. Check the prices and payment amount.");
@@ -146,6 +162,10 @@ public class WalkInSaleController {
                 .param("total", total).param("currency", currency).param("customer", customerId).param("name", customerName)
                 .param("phone", customerPhone).param("employee", employee)
                 .param("request", request.requestId()).param("fingerprint", fingerprint).update();
+        jdbc.sql("update orders set subtotal=:subtotal,discount_type=:type,discount_value=:value,discount_amount=:amount,discount_reason=:reason,discount_recorded_by=:actor where id=:id")
+            .param("subtotal",subtotal).param("type",discountType).param("value",discountValue).param("amount",discountAmount)
+            .param("reason",discountType.equals("NONE")?null:clean(request.discountReason()))
+            .param("actor",discountType.equals("NONE")?null:employee).param("id",id).update();
         for (var item : items) {
             jdbc.sql("""
                     insert into order_items(order_id,product_id,product_name,quantity,unit_price,line_total)
@@ -173,7 +193,7 @@ public class WalkInSaleController {
     public Map<String, Object> invoice(Authentication authentication, @PathVariable UUID id) {
         Map<String, Object> invoice = jdbc.sql("""
                 select o.id,o.reference,o.reference invoice_number,o.status,o.created_at,o.customer_name,
-                    o.customer_phone,o.total,trim(o.currency) currency,b.name branch_name,b.address branch_address,
+                    o.customer_phone,o.total,coalesce(o.subtotal,o.total) subtotal,o.discount_type,o.discount_value,o.discount_amount,o.discount_reason,o.discount_recorded_by,trim(o.currency) currency,b.name branch_name,b.address branch_address,
                     b.phone_number branch_phone,p.amount amount_paid,p.external_method payment_method,
                     p.external_reference payment_reference,p.created_at paid_at,
                     concat(u.first_name,' ',u.last_name) recorded_by
@@ -222,6 +242,9 @@ public class WalkInSaleController {
         r.items().stream().sorted(Comparator.comparing(LineRequest::productId)).forEach(i -> {
             values.add(i.productId().toString()); values.add(i.quantity().stripTrailingZeros().toPlainString());
         });
+        if(r.discountType()!=null && !r.discountType().equals("NONE")) {
+            values.add(r.discountType()); values.add(Objects.toString(r.discountValue(),"")); values.add(clean(r.discountReason()));
+        }
         StringBuilder input = new StringBuilder();
         values.forEach(v -> input.append(v.length()).append(':').append(v));
         try {
@@ -235,7 +258,15 @@ public class WalkInSaleController {
             @NotBlank @Pattern(regexp="CASH|CARD|MOBILE_MONEY|BANK_TRANSFER") String paymentMethod,
             @Size(max=120) String paymentReference,
             @NotNull @DecimalMin("0.00") @Digits(integer=12,fraction=2) BigDecimal amountPaid,
-            @NotBlank @Pattern(regexp="[A-Z]{3}") String currency) {}
+            @NotBlank @Pattern(regexp="[A-Z]{3}") String currency,
+            @Pattern(regexp="NONE|PERCENTAGE|FIXED") String discountType,
+            @DecimalMin("0") @Digits(integer=12,fraction=2) BigDecimal discountValue,
+            @Size(max=500) String discountReason) {
+        public SaleRequest(UUID requestId,UUID branchId,UUID customerId,String customerName,String customerPhone,
+            List<LineRequest> items,String paymentMethod,String paymentReference,BigDecimal amountPaid,String currency) {
+            this(requestId,branchId,customerId,customerName,customerPhone,items,paymentMethod,paymentReference,amountPaid,currency,null,null,null);
+        }
+    }
     public record LineRequest(@NotNull UUID productId,
             @NotNull @DecimalMin("0.001") @Digits(integer=9,fraction=3) BigDecimal quantity) {}
 }

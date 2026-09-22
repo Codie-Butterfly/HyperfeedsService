@@ -80,11 +80,12 @@ class ChickBookingCheckoutController {
                        cb.deposit_required,cb.deposit_percentage,cb.deposit_amount,
                        cb.deposit_payment_method,cb.deposit_paid_at,
                        cb.collected_at,
-                       (cb.total_amount-case when cb.deposit_paid_at is null then 0 else cb.deposit_amount end) amount_owed,
-                       b.name branch_name,u.phone_number,
+                       (cb.total_amount-case when cb.sales_channel='WALK_IN' then coalesce((select sum(paid.amount) from payments paid where paid.chick_booking_id=cb.id and paid.status='PAID'),0) else case when cb.deposit_paid_at is null then 0 else cb.deposit_amount end end) amount_owed,
+                       b.name branch_name,coalesce(cb.customer_phone,u.phone_number) phone_number,
+                       coalesce(cb.customer_name,concat(u.first_name,' ',u.last_name)) customer_name,cb.sales_channel,
                        coalesce(p.status,case when cb.deposit_paid_at is not null then 'PAID' else 'NOT_PAID' end) deposit_status
                 from chick_bookings cb join branches b on b.id=cb.pickup_branch_id
-                join users u on u.id=cb.user_id
+                left join users u on u.id=cb.user_id
                 left join lateral(select status from payments where chick_booking_id=cb.id order by created_at desc limit 1)p on true
                 where upper(cb.reference)=upper(:reference)
                   and (not :restricted or exists(select 1 from employee_branches eb

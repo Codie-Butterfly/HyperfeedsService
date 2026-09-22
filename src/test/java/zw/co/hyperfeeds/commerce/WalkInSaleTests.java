@@ -33,9 +33,14 @@ class WalkInSaleTests {
         }
         @Bean JdbcClient jdbc(DataSource ds) { return JdbcClient.create(ds); }
         @Bean PlatformTransactionManager transactionManager(DataSource ds) { return new DataSourceTransactionManager(ds); }
+        @Bean zw.co.hyperfeeds.bookings.ChickBookingController chickBookings(JdbcClient jdbc) { return new zw.co.hyperfeeds.bookings.ChickBookingController(jdbc); }
+        @Bean WalkInChickBookingController walkInChicks(JdbcClient jdbc, zw.co.hyperfeeds.bookings.ChickBookingController bookings) { return new WalkInChickBookingController(jdbc, bookings); }
+        @Bean zw.co.hyperfeeds.management.ExecutiveDashboardController executive(JdbcClient jdbc) { return new zw.co.hyperfeeds.management.ExecutiveDashboardController(jdbc); }
         @Bean WalkInSaleController controller(JdbcClient jdbc) { return new WalkInSaleController(jdbc); }
         @Bean OrderCheckoutController orders(JdbcClient jdbc) { return new OrderCheckoutController(jdbc, null); }
     }
+    @Autowired zw.co.hyperfeeds.management.ExecutiveDashboardController executive;
+    @Autowired WalkInChickBookingController chicks;
     @Autowired JdbcClient jdbc;
     @Autowired WalkInSaleController controller;
     @Autowired OrderCheckoutController orders;
@@ -159,4 +164,94 @@ class WalkInSaleTests {
         assertThat(jdbc.sql("select invoice_copy_count from orders where id=:id").param("id",id).query(Integer.class).single()).isZero();
     }
 
+
+    private String chickSetup(boolean deposit) {
+        jdbc.sql("update chick_booking_batches set status='CLOSED' where status='OPEN'").update();
+        jdbc.sql("insert into chick_booking_batches(name,start_date,end_date,status) values('Walk-in test',current_date,current_date+7,'OPEN')").update();
+        String breed="Breed-"+UUID.randomUUID();
+        jdbc.sql("insert into chick_breed_configs(chick_type,breed,price_per_chick,currency,available) values('BROILER',:breed,2,'USD',true)").param("breed",breed).update();
+        jdbc.sql("update system_configs set config_value=:value where config_key='CHICK_ORDER_DEPOSIT_ENABLED'").param("value",deposit?"true":"false").update();
+        jdbc.sql("update system_configs set config_value='25' where config_key='CHICK_ORDER_DEPOSIT_PERCENTAGE'").update();
+        return breed;
+    }
+    private WalkInChickBookingController.Request chickRequest(String breed, BigDecimal paid) {
+        return new WalkInChickBookingController.Request(UUID.randomUUID(),branch,null,"Walk-in chick customer","",
+            "BROILER",breed,100,new BigDecimal("200.00"),paid,"USD","CASH","");
+    }
+    @Test void walkInChickDepositBalanceAndReprints() {
+        var request=chickRequest(chickSetup(true),new BigDecimal("50.00"));
+        var booking=chicks.create(auth,request); UUID id=(UUID)booking.get("id");
+        assertThat(booking.get("customer_name")).isEqualTo("Walk-in chick customer");
+        assertThat((BigDecimal)booking.get("amount_owed")).isEqualByComparingTo("150.00");
+        assertThat(chicks.create(auth,request).get("id")).isEqualTo(id);
+        assertThat(jdbc.sql("select user_id from chick_bookings where id=:id").param("id",id).query().singleRow().get("user_id")).isNull();
+        assertThat(chicks.issueCopy(auth,id).get("copy_number")).isEqualTo(1);
+        assertThat(chicks.issueCopy(auth,id).get("is_reprint")).isEqualTo(true);
+        var payment=new WalkInChickBookingController.BalanceRequest(new BigDecimal("150"),"USD","CARD","POS123");
+        assertThat((BigDecimal)chicks.balancePayment(auth,id,payment).get("amount_owed")).isEqualByComparingTo("0");
+        chicks.balancePayment(auth,id,payment);
+        assertThat(jdbc.sql("select count(*) from payments where chick_booking_id=:id").param("id",id).query(Integer.class).single()).isEqualTo(2);
+    }
+    @Test void walkInChickUnderpaymentRollsBackAndClosedBatchRejects() {
+        var request=chickRequest(chickSetup(true),new BigDecimal("49.00"));
+        int before=jdbc.sql("select count(*) from chick_bookings").query(Integer.class).single();
+        assertThatThrownBy(()->chicks.create(auth,request)).isInstanceOf(ResponseStatusException.class);
+        assertThat(jdbc.sql("select count(*) from chick_bookings").query(Integer.class).single()).isEqualTo(before);
+        jdbc.sql("update chick_booking_batches set status='CLOSED' where status='OPEN'").update();
+        assertThatThrownBy(()->chicks.create(auth,request)).isInstanceOf(ResponseStatusException.class);
+    }
+    @Test void walkInChickPermissionsAndNoDeposit() {
+        var request=chickRequest(chickSetup(false),BigDecimal.ZERO);
+        role("CUSTOMER");
+        assertThatThrownBy(()->chicks.create(auth,request)).isInstanceOf(AccessDeniedException.class);
+        role("BRANCH_MANAGER");
+        jdbc.sql("delete from employee_branches where user_id=:user").param("user",employee).update();
+        assertThatThrownBy(()->chicks.create(auth,request)).isInstanceOf(ResponseStatusException.class);
+        role("CUSTOMER_SERVICE");
+        var result=chicks.create(auth,request);
+        assertThat(result.get("status")).isEqualTo("CONFIRMED");
+        assertThat((BigDecimal)result.get("amount_paid")).isEqualByComparingTo("0");
+    }
+
+    private WalkInSaleController.SaleRequest discounted(String type,String value,String reason,String paid) {
+        var base=sale();
+        return new WalkInSaleController.SaleRequest(base.requestId(),branch,null,base.customerName(),"",base.items(),"CASH","",new BigDecimal(paid),"USD",type,new BigDecimal(value),reason);
+    }
+    @Test void discountRecordedAndDashboardReconcilesNetSalesTargetsAndCurrency() {
+        var request=discounted("PERCENTAGE","10","Regular customer","22.50");
+        var sale=controller.create(auth,request);
+        assertThat((BigDecimal)sale.get("subtotal")).isEqualByComparingTo("25");
+        assertThat((BigDecimal)sale.get("discount_amount")).isEqualByComparingTo("2.50");
+        assertThat(sale.get("discount_recorded_by")).isEqualTo(employee);
+        assertThat(controller.create(auth,request).get("id")).isEqualTo(sale.get("id"));
+        String month=java.time.YearMonth.now(java.time.ZoneId.of("Africa/Harare")).toString();
+        assertThatThrownBy(()->executive.dashboard(month,"USD",branch)).isInstanceOf(AccessDeniedException.class);
+        role("CEO");
+        executive.target(auth,new zw.co.hyperfeeds.management.ExecutiveDashboardController.TargetRequest(month,branch,"USD",new BigDecimal("100")));
+        var result=executive.dashboard(month,"USD",branch);
+        Map<String,Object> summary=(Map<String,Object>)result.get("summary");
+        assertThat((BigDecimal)summary.get("net_sales")).isEqualByComparingTo("22.50");
+        assertThat((BigDecimal)summary.get("discounts")).isEqualByComparingTo("2.50");
+        assertThat((BigDecimal)summary.get("cash_received")).isEqualByComparingTo("22.50");
+        assertThat((BigDecimal)summary.get("remaining_to_target")).isEqualByComparingTo("77.50");
+        assertThat((BigDecimal)summary.get("achievement_percent")).isEqualByComparingTo("22.5");
+        var other=(Map<String,Object>)executive.dashboard(month,"ZAR",branch).get("summary");
+        assertThat((BigDecimal)other.get("net_sales")).isEqualByComparingTo("0");
+        assertThat(other.get("target")).isNull();
+        var products=(List<Map<String,Object>>)result.get("products");
+        assertThat(products).anyMatch(p->product.equals(p.get("id")) && ((BigDecimal)p.get("net_sales")).compareTo(new BigDecimal("22.50"))==0);
+        executive.target(auth,new zw.co.hyperfeeds.management.ExecutiveDashboardController.TargetRequest(month,null,"USD",new BigDecimal("1000")));
+        var company=(Map<String,Object>)executive.dashboard(month,"USD",null).get("summary");
+        assertThat((BigDecimal)company.get("target")).isEqualByComparingTo("1000");
+        assertThat((BigDecimal)((Map<?,?>)executive.dashboard(month,"USD",branch).get("summary")).get("target")).isEqualByComparingTo("100");
+    }
+    @Test void fixedDiscountAndInvalidDiscountRollback() {
+        assertThatThrownBy(()->controller.create(auth,discounted("FIXED","26","Too high","0"))).isInstanceOf(ResponseStatusException.class);
+        assertThatThrownBy(()->controller.create(auth,discounted("PERCENTAGE","10","","22.50"))).isInstanceOf(ResponseStatusException.class);
+        assertThat(stock()).isEqualByComparingTo("10");
+        role("CUSTOMER_SERVICE");
+        var sale=controller.create(auth,discounted("FIXED","5","Promotion","20"));
+        assertThat((BigDecimal)sale.get("total")).isEqualByComparingTo("20");
+        assertThat(sale.get("discount_reason")).isEqualTo("Promotion");
+    }
 }

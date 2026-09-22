@@ -27,7 +27,7 @@ public class ManagementController {
     @ResponseStatus(HttpStatus.CREATED)
     @Transactional
     UUID createEmployee(@Valid @RequestBody EmployeeRequest r) {
-        if (!Set.of("MAIN_MANAGER", "BRANCH_MANAGER", "ANIMAL_HEALTH_EXPERT", "CUSTOMER_SERVICE").contains(r.role))
+        if (!Set.of("CEO", "MAIN_MANAGER", "BRANCH_MANAGER", "ANIMAL_HEALTH_EXPERT", "CUSTOMER_SERVICE").contains(r.role))
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported employee role");
         if (r.role.equals("BRANCH_MANAGER") && r.branchId == null)
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "A branch manager must have a branch");
@@ -142,8 +142,9 @@ public class ManagementController {
                 .anyMatch(a -> a.getAuthority().equals("ROLE_BRANCH_MANAGER"));
         return jdbc.sql("""
             select booking.id,booking.reference,booking.created_at,booking.status,
-                   branch.id branch_id,concat(customer.first_name,' ',customer.last_name) customer_name,
-                   customer.phone_number customer_phone,
+                   branch.id branch_id,coalesce(booking.customer_name,concat(customer.first_name,' ',customer.last_name)) customer_name,
+                   coalesce(booking.customer_phone,customer.phone_number) customer_phone,booking.sales_channel,
+                   coalesce((select sum(p.amount) from payments p where p.chick_booking_id=booking.id and p.status='PAID'),0) amount_paid,
                    branch.name branch_name,coalesce(booking.chick_type,offering.chick_type) chick_type,
                    coalesce(booking.breed,offering.breed) breed,booking.quantity,
                    booking.total_amount,trim(booking.currency) currency,booking.delivery_date_snapshot delivery_date,
@@ -152,13 +153,13 @@ public class ManagementController {
             from chick_bookings booking
             left join chick_batches offering on offering.id=booking.batch_id
             join branches branch on branch.id=coalesce(booking.pickup_branch_id,offering.branch_id)
-            join users customer on customer.id=booking.user_id
+            left join users customer on customer.id=booking.user_id
             where (cast(:startDate as date) is null or booking.created_at >= cast(:startDate as date))
               and (cast(:endDate as date) is null or booking.created_at < cast(:endDate as date) + interval '1 day')
               and (cast(:batchId as uuid) is null or booking.booking_batch_id=cast(:batchId as uuid))
               and ((:status='' and booking.status not in ('CANCELLED','COLLECTED'))
                    or (:status<>'' and booking.status=:status))
-              and (:phone='' or customer.phone_number like concat('%',:phone,'%'))
+              and (:phone='' or coalesce(booking.customer_phone,customer.phone_number) like concat('%',:phone,'%'))
               and (not :restricted or exists(select 1 from employee_branches eb
                     where eb.user_id=:user and eb.branch_id=branch.id))
             order by booking.created_at desc
@@ -204,7 +205,7 @@ public class ManagementController {
         jdbc.sql("insert into payments(chick_booking_id,provider,status,amount,currency) values(:id,'BRANCH','PAID',:amount,:currency)")
                 .param("id", id).param("amount", order.get("deposit_amount"))
                 .param("currency", order.get("currency")).update();
-        jdbc.sql("insert into notifications(user_id,type,title,body,data) values(:user,'CHICK_DEPOSIT_PAID','Deposit received',:body,jsonb_build_object('chickBookingId',:id))")
+        if (order.get("user_id") != null) jdbc.sql("insert into notifications(user_id,type,title,body,data) values(:user,'CHICK_DEPOSIT_PAID','Deposit received',:body,jsonb_build_object('chickBookingId',:id))")
                 .param("user", order.get("user_id"))
                 .param("body", "Deposit for chick order " + order.get("reference") + " was received at the branch.")
                 .param("id", id.toString()).update();
@@ -223,15 +224,16 @@ public class ManagementController {
             left join chick_batches offering on offering.id=booking.batch_id
             join branches branch on branch.id=coalesce(booking.pickup_branch_id,offering.branch_id)
             where booking.id=:id and booking.status='CONFIRMED' and booking.collected_at is null
+              and (booking.sales_channel<>'WALK_IN' or booking.total_amount<=coalesce((select sum(p.amount) from payments p where p.chick_booking_id=booking.id and p.status='PAID'),0))
               and (not :restricted or exists(select 1 from employee_branches eb
                     where eb.user_id=:employee and eb.branch_id=branch.id))
             """).param("id", id).param("restricted", restrictToAssignedBranch)
                 .param("employee", CurrentUser.id(authentication)).query().listOfRows().stream().findFirst()
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT,
-                        "Only a confirmed, uncollected chick order for your branch can be collected"));
+                        "Only a confirmed, uncollected chick order for your branch can be collected. Walk-in bookings must be fully paid."));
         jdbc.sql("update chick_bookings set status='COLLECTED',collected_at=now(),updated_at=now() where id=:id")
                 .param("id", id).update();
-        jdbc.sql("insert into notifications(user_id,type,title,body,data) values(:user,'CHICK_ORDER_COLLECTED','Chick order collected',:body,jsonb_build_object('chickBookingId',:id))")
+        if (order.get("user_id") != null) jdbc.sql("insert into notifications(user_id,type,title,body,data) values(:user,'CHICK_ORDER_COLLECTED','Chick order collected',:body,jsonb_build_object('chickBookingId',:id))")
                 .param("user", order.get("user_id"))
                 .param("body", "Chick order " + order.get("reference") + " has been marked as collected.")
                 .param("id", id.toString()).update();

@@ -328,6 +328,7 @@ public class ChickBookingController {
                                           'deliveryDate', cast(:newDate as text))
                 from chick_bookings booking
                 where booking.batch_id = :batchId
+                  and booking.user_id is not null
                   and booking.status in ('ORDERED','CONFIRMED')
                 """)
                 .param("body", body)
