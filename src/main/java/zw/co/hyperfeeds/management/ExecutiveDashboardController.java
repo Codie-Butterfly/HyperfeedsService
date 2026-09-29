@@ -102,13 +102,33 @@ public class ExecutiveDashboardController {
             where cast(:branch as uuid) is null or i.branch_id=:branch
             order by low_stock desc,available,b.name,p.name
             """,period,currency,branchId).query().listOfRows();
+        var feedStock=query("""
+            with sold as (
+              select oi.product_id,sum(oi.quantity) sold
+              from order_items oi join orders o on o.id=oi.order_id
+              where o.status in ('PAID','COLLECTED') and o.created_at>=:start and o.created_at<:end
+              and (cast(:branch as uuid) is null or o.branch_id=:branch)
+              group by oi.product_id
+            ), stock as (
+              select product_id,sum(on_hand) remaining from branch_inventory
+              where cast(:branch as uuid) is null or branch_id=:branch group by product_id
+            )
+            select p.id,p.name,p.pack_size,c.name category,
+              coalesce(s.sold,0) sold,coalesce(i.remaining,0) remaining
+            from products p join product_categories c on c.id=p.category_id
+            left join sold s on s.product_id=p.id left join stock i on i.product_id=p.id
+            where (p.active or s.product_id is not null or i.product_id is not null)
+              and (s.product_id is not null or i.product_id is not null)
+              and lower(c.name) like '%feed%'
+            order by c.name,p.name,p.pack_size
+            """,period,currency,branchId).query().listOfRows();
         var chicks=query("""
             select cb.status,cb.chick_type,cb.breed,count(*) bookings,sum(cb.quantity) chicks,sum(cb.total_amount) value
             from chick_bookings cb where trim(cb.currency)=:currency and cb.created_at>=:start and cb.created_at<:end
             and (cast(:branch as uuid) is null or cb.pickup_branch_id=:branch)
             group by cb.status,cb.chick_type,cb.breed order by cb.status,cb.breed
             """,period,currency,branchId).query().listOfRows();
-        return Map.of("summary",summary,"daily",daily,"branches",branches,"products",products,"inventory",inventory,"chicks",chicks,
+        return Map.of("feed_stock",feedStock,"summary",summary,"daily",daily,"branches",branches,"products",products,"inventory",inventory,"chicks",chicks,
             "month",month,"currency",currency,"as_of",OffsetDateTime.now().toString());
     }
     @PutMapping("/targets")
